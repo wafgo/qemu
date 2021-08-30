@@ -32,6 +32,10 @@ softmmu_ss.add(when: 'CONFIG_SIFIVE_E_PRCI', if_true: files('sifive_e_prci.c'))
 softmmu_ss.add(when: 'CONFIG_SIFIVE_U_OTP', if_true: files('sifive_u_otp.c'))
 softmmu_ss.add(when: 'CONFIG_SIFIVE_U_PRCI', if_true: files('sifive_u_prci.c'))
 
+# RCar3 devices
+softmmu_ss.add(when: 'CONFIG_RCAR3', if_true: files('rcar3_clk.c', 'rcar_prr.c', 'renesas-dbsc4.c', 'rcar3_sysc.c', 'renesas_ipmmu.c'))
+
+specific_ss.add(when: 'CONFIG_RCAR3', if_true: files('rcar_rst.c'))
 subdir('macio')
 
 softmmu_ss.add(when: 'CONFIG_IVSHMEM_DEVICE', if_true: files('ivshmem.c'))

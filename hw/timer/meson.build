@@ -36,3 +36,5 @@ softmmu_ss.add(when: 'CONFIG_XILINX', if_true: files('xilinx_timer.c'))
 specific_ss.add(when: 'CONFIG_IBEX', if_true: files('ibex_timer.c'))
 
 specific_ss.add(when: 'CONFIG_AVR_TIMER16', if_true: files('avr_timer16.c'))
+
+softmmu_ss.add(when: 'CONFIG_RCAR3', if_true: files('armv8_mm_generic_counter.c', 'renesas_tpu.c'))

@@ -1,3 +1,7 @@
+config ARMV8_MM_GC
+   bool
+   select PTIMER
+
 config ARM_TIMER
     bool
     select PTIMER

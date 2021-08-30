@@ -58,7 +58,7 @@ static const uint8_t gic_id_gicv2[] = {
 
 static inline int gic_get_current_cpu(GICState *s)
 {
-    if (!qtest_enabled() && s->num_cpu > 1) {
+    if (!qtest_enabled() && s->num_cpu > 1 && current_cpu != NULL) {
         return current_cpu->cpu_index;
     }
     return 0;
