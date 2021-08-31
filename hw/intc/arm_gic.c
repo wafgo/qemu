@@ -1662,6 +1662,9 @@ static MemTxResult gic_cpu_read(GICState *s, int cpu, int offset,
         }
         break;
     }
+    case 0xfc:
+      *data = (s->revision << 16);
+      break;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
                       "gic_cpu_read: Bad offset %x\n", (int)offset);
