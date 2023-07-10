@@ -36,6 +36,10 @@ config VIRTIO_BLK
     default y
     depends on VIRTIO
 
+config PCI_REMOTE_BLK
+    bool
+    default y
+
 config VHOST_USER_BLK
     bool
     # Only PCI devices are provided for now
