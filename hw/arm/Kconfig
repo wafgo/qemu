@@ -624,6 +624,13 @@ config MPS2
     select CMSDK_APB_WATCHDOG
     select ARM_SBCON_I2C
 
+config HDK11
+    bool
+    default y
+    depends on TCG && ARM
+    select UNIMP
+
+
 config FSL_IMX7
     bool
     default y
