@@ -629,7 +629,8 @@ config HDK11
     default y
     depends on TCG && ARM
     select UNIMP
-
+    select S32G_MSCM
+    select S32STM_TIMER
 
 config FSL_IMX7
     bool

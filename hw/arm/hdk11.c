@@ -81,9 +81,8 @@ static void hdk11_init(MachineState *machine)
     clock_set_hz(hdk->xtal, HDK_XTAL_FREQ);
     qdev_connect_clock_in(DEVICE(s32), "sysclk", hdk->xtal);
     object_property_add_child(OBJECT(machine), "soc", OBJECT(s32));
-    object_unref(OBJECT(s32));
     
-    if (!qdev_realize(DEVICE(s32), NULL, &err)) {
+    if (!qdev_realize_and_unref(DEVICE(s32), NULL, &err)) {
         error_reportf_err(err, "Couldn't realize S32G M7 Core: ");
         exit(1);
     }

@@ -29,6 +29,8 @@
 #include "hw/arm/armv7m.h"
 #include "exec/memory.h"
 #include "qemu/units.h"
+#include "hw/misc/s32g_mscm.h"
+#include "hw/timer/s32_stm.h"
 
 #define TYPE_NXP_S32G "nxp-s32g"
 OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
@@ -38,7 +40,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_NUM_UARTS 5
 #define NXP_S32G_NUM_EPITS 2
 #define NXP_S32G_NUM_ESDHCS 4
-
+#define NXP_S32G_NUM_STM    8
+    
 struct NxpS32GState {
     /*< private >*/
     DeviceState parent_obj;
@@ -47,16 +50,51 @@ struct NxpS32GState {
     ARMv7MState        m7_cpu;
     ARMCPU             a53_cpu[NXP_S32G_NUM_A53_CPUS];
     DesignwarePCIEHost pcie;
+    S32MSCMState       mscm;
     MemoryRegion       qspi_nor;
     MemoryRegion       standby_ram;
     MemoryRegion       sram;
     uint32_t           phy_num;
     Clock              *sysclk;
+    S32STMTimerState   stm[NXP_S32G_NUM_STM];
 };
+
 
 #define NXP_S32G_STANDBY_RAM_BASE 0x24000000
 #define NXP_S32G_STANDBY_RAM_SIZE (32 * KiB)
+
 #define NXP_S32G_SRAM_BASE        0x34000000
 #define NXP_S32G_SRAM_SIZE        (8 * MiB)
+
+#define NXP_S32G_QSPI_AHB_BASE    0x0
+#define NXP_S32G_QSPI_AHB_SIZE    (128 * MiB)
+
+#define NXP_S32G_MSCM_BASE_ADDR   0x40198000
+
+#define NXP_S32G_STM0_BASE_ADDR 0x4011C000
+#define NXP_S32G_STM0_IRQ       24
+
+#define NXP_S32G_STM1_BASE_ADDR 0x40120000
+#define NXP_S32G_STM1_IRQ       25
+
+#define NXP_S32G_STM2_BASE_ADDR 0x40124000
+#define NXP_S32G_STM2_IRQ       26
+
+#define NXP_S32G_STM3_BASE_ADDR 0x40128000
+#define NXP_S32G_STM3_IRQ       27
+
+#define NXP_S32G_STM4_BASE_ADDR 0x4021C000
+#define NXP_S32G_STM4_IRQ       28
+
+#define NXP_S32G_STM5_BASE_ADDR 0x40220000
+#define NXP_S32G_STM5_IRQ       29
+
+#define NXP_S32G_STM6_BASE_ADDR 0x40224000
+#define NXP_S32G_STM6_IRQ       30
+
+#define NXP_S32G_STM7_BASE_ADDR 0x40228000
+#define NXP_S32G_STM7_IRQ       31
+
+
 
 #endif /* NXP_S32G_H */
