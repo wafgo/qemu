@@ -114,7 +114,12 @@ system_ss.add(when: 'CONFIG_STM32L4X5_SYSCFG', if_true: files('stm32l4x5_syscfg.
 system_ss.add(when: 'CONFIG_STM32L4X5_RCC', if_true: files('stm32l4x5_rcc.c'))
 system_ss.add(when: 'CONFIG_MPS2_FPGAIO', if_true: files('mps2-fpgaio.c'))
 system_ss.add(when: 'CONFIG_MPS2_SCC', if_true: files('mps2-scc.c'))
+
 system_ss.add(when: 'CONFIG_S32G_MSCM', if_true: files('s32g_mscm.c'))
+system_ss.add(when: 'CONFIG_S32G_MCME', if_true: files('s32g_mcme.c'))
+system_ss.add(when: 'CONFIG_S32G_RDC', if_true: files('s32g_rdc.c'))
+system_ss.add(when: 'CONFIG_S32G_CLK', if_true: files('s32g_clk.c'))
+
 
 system_ss.add(when: 'CONFIG_TZ_MPC', if_true: files('tz-mpc.c'))
 system_ss.add(when: 'CONFIG_TZ_MSC', if_true: files('tz-msc.c'))

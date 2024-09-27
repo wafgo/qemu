@@ -30,6 +30,10 @@
 #include "exec/memory.h"
 #include "qemu/units.h"
 #include "hw/misc/s32g_mscm.h"
+#include "hw/misc/s32g_mcme.h"
+#include "hw/misc/s32g_rdc.h"
+#include "hw/misc/s32g_cgm.h"
+#include "hw/misc/s32g_dfs.h"
 #include "hw/timer/s32_stm.h"
 
 #define TYPE_NXP_S32G "nxp-s32g"
@@ -41,6 +45,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_NUM_EPITS 2
 #define NXP_S32G_NUM_ESDHCS 4
 #define NXP_S32G_NUM_STM    8
+#define NXP_S32G_NUM_CGM    4
     
 struct NxpS32GState {
     /*< private >*/
@@ -57,6 +62,11 @@ struct NxpS32GState {
     uint32_t           phy_num;
     Clock              *sysclk;
     S32STMTimerState   stm[NXP_S32G_NUM_STM];
+    S32MCMEState       mod_entry;
+    S32RDCState        rdc;
+    S32CGMState        cgm[NXP_S32G_NUM_CGM];
+    S32DFSState        core_dfs;
+    S32DFSState        periph_dfs;
 };
 
 
@@ -95,6 +105,15 @@ struct NxpS32GState {
 #define NXP_S32G_STM7_BASE_ADDR 0x40228000
 #define NXP_S32G_STM7_IRQ       31
 
+#define NXP_S32G_MCME_BASE_ADDR 0x40088000
+#define NXP_S32G_RDC_BASE_ADDR 0x40080000
 
+#define NXP_S32G_CGM0_BASE_ADDR 0x40030000
+#define NXP_S32G_CGM1_BASE_ADDR 0x40034000
+#define NXP_S32G_CGM2_BASE_ADDR 0x44018000
+#define NXP_S32G_CGM5_BASE_ADDR 0x40068000
+
+#define NXP_S32G_CORE_DFS_BASE_ADDR 0x40054000
+#define NXP_S32G_PERIPH_DFS_BASE_ADDR 0x40058000
 
 #endif /* NXP_S32G_H */

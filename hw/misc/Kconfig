@@ -114,6 +114,15 @@ config MPS2_SCC
 config S32G_MSCM
     bool
 
+config S32G_MCME
+    bool
+
+config S32G_RDC
+    bool
+
+config S32G_CLK
+    bool
+
 config TZ_MPC
     bool
 

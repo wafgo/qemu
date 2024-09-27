@@ -630,6 +630,9 @@ config HDK11
     depends on TCG && ARM
     select UNIMP
     select S32G_MSCM
+    select S32G_MCME
+    select S32G_RDC
+    select S32G_CLK
     select S32STM_TIMER
 
 config FSL_IMX7
