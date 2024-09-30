@@ -35,6 +35,7 @@
 #include "hw/misc/s32g_cgm.h"
 #include "hw/misc/s32g_dfs.h"
 #include "hw/timer/s32_stm.h"
+#include "hw/char/nxp_linflexd.h"
 
 #define TYPE_NXP_S32G "nxp-s32g"
 OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
@@ -46,6 +47,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_NUM_ESDHCS 4
 #define NXP_S32G_NUM_STM    8
 #define NXP_S32G_NUM_CGM    4
+#define NXP_S32G_NUM_LINFLEXD    3
     
 struct NxpS32GState {
     /*< private >*/
@@ -67,6 +69,7 @@ struct NxpS32GState {
     S32CGMState        cgm[NXP_S32G_NUM_CGM];
     S32DFSState        core_dfs;
     S32DFSState        periph_dfs;
+    LinFlexDState      linflexd[NXP_S32G_NUM_LINFLEXD];
 };
 
 
@@ -115,5 +118,9 @@ struct NxpS32GState {
 
 #define NXP_S32G_CORE_DFS_BASE_ADDR 0x40054000
 #define NXP_S32G_PERIPH_DFS_BASE_ADDR 0x40058000
+
+#define NXP_S32G_PERIPH_LINFLEXD_0_BASE_ADDR 0x401C8000
+#define NXP_S32G_PERIPH_LINFLEXD_1_BASE_ADDR 0x401CC000
+#define NXP_S32G_PERIPH_LINFLEXD_2_BASE_ADDR 0x402BC000
 
 #endif /* NXP_S32G_H */
