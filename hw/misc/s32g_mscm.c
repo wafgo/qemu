@@ -19,7 +19,10 @@
 #include "target/arm/arm-powerctl.h"
 #include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
+#if defined(__linux__)
 #include <elf.h>
+#endif
+
 
 #define DEBUG_S32G_MSCM 1
 

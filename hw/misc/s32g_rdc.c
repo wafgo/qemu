@@ -18,7 +18,9 @@
 #include "target/arm/arm-powerctl.h"
 #include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
+#if defined(__linux__)
 #include <elf.h>
+#endif
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
@@ -72,7 +74,7 @@ static uint64_t s32_rdc_read(void *opaque, hwaddr offset, unsigned size)
         break;
                     
     }
-    DPRINTF("offset: 0x%" HWADDR_PRIx ", value : 0x%lx\n", offset, value);
+    DPRINTF("offset: 0x%" HWADDR_PRIx ", value : 0x%" PRIx64 "\n", offset, value);
     return value;
 }
 
@@ -95,7 +97,7 @@ static void s32_rdc_write(void *opaque, hwaddr offset, uint64_t value,
                       HWADDR_PRIx "\n", TYPE_S32_RDC, __func__, offset);
         break;
     }
-    DPRINTF("offset: 0x%" HWADDR_PRIx " Write: 0x%lx\n", offset, value);
+    DPRINTF("offset: 0x%" HWADDR_PRIx " Write: 0x%" PRIx64 "\n", offset, value);
 }
 
 

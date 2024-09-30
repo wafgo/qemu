@@ -634,6 +634,8 @@ config HDK11
     select S32G_RDC
     select S32G_CLK
     select S32STM_TIMER
+    select NXP_LINFLEXD
+    select S32G_I2C
 
 config FSL_IMX7
     bool

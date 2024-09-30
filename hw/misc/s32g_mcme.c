@@ -18,7 +18,9 @@
 #include "target/arm/arm-powerctl.h"
 #include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
+#if defined(__linux__)
 #include <elf.h>
+#endif
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
@@ -141,7 +143,7 @@ static uint64_t s32_mcme_read(void *opaque, hwaddr offset, unsigned size)
 
 static void s32_mcme_handle_control_write(S32MCMEState *s, hwaddr offset, uint64_t value, unsigned size)
 {
-    printf("%s offset: 0x%" HWADDR_PRIx ", value: 0x%lx \n", __FUNCTION__, offset, value);
+    printf("%s offset: 0x%" HWADDR_PRIx ", value: 0x%" PRIx64 " \n", __FUNCTION__, offset, value);
     switch (offset) {
     case MC_ME_CTL_KEY_OFFSET:
         if (s->ctrl_regs[offset] == 0x5AF0 && value == 0xA50F) {
@@ -164,7 +166,7 @@ static void s32_mcme_handle_control_write(S32MCMEState *s, hwaddr offset, uint64
 static void s32_mcme_handle_partition_write(S32MCMEState *s, hwaddr offset, uint64_t value, unsigned size, uint32_t *regs)
 {
     uint32_t idx = mcme_offset2idx(offset);
-    printf("%s offset: 0x%" HWADDR_PRIx ", value: 0x%lx, idx: 0x%x \n", __FUNCTION__, offset, value, idx);
+    printf("%s offset: 0x%" HWADDR_PRIx ", value: 0x%" PRIx64 "idx: 0x%x \n", __FUNCTION__, offset, value, idx);
     regs[idx] = value;
 }
 
