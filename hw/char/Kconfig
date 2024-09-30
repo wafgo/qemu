@@ -15,6 +15,9 @@ config PL011
 config SERIAL
     bool
 
+config LINFLEXD
+    bool
+    
 config SERIAL_ISA
     bool
     default y

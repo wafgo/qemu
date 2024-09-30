@@ -123,6 +123,9 @@ config S32G_RDC
 config S32G_CLK
     bool
 
+config S32G_CMU
+    bool
+
 config TZ_MPC
     bool
 

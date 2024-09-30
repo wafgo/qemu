@@ -11,6 +11,8 @@
 #include "qemu/osdep.h"
 #include "hw/misc/s32g_cgm.h"
 #include "hw/misc/s32g_dfs.h"
+#include "hw/misc/s32g_fxosc.h"
+#include "hw/misc/s32g_pll.h"
 #include "migration/vmstate.h"
 #include "qemu/bitops.h"
 #include "qemu/log.h"
@@ -324,6 +326,134 @@ static void s32_cgm_write(void *opaque, hwaddr offset, uint64_t value,
     DPRINTF(TYPE_S32_CGM, "offset: 0x%" HWADDR_PRIx " Write: 0x%lx\n", offset, value);
 }
 
+static uint64_t s32_fxosc_read(void *opaque, hwaddr offset, unsigned size)
+{
+    S32FXOSCState *s = (S32FXOSCState *)opaque;
+    uint64_t value = 0;
+        
+    switch(offset) {
+    case FXOSC_CTRL:
+        value = s->ctrl;
+        break;
+    case FXOSC_STAT:
+        value = ((s->ctrl & 0x1) << 31);
+        break;
+    default:
+        DPRINTF(TYPE_S32_FXOSC, "Invalid Register Access @ offset: 0x%" HWADDR_PRIx " Read\n", offset);
+        break;
+    }
+    DPRINTF(TYPE_S32_FXOSC, "offset: 0x%" HWADDR_PRIx " Read: 0x%lx\n", offset, value);
+    return value;
+}
+
+static void s32_fxosc_write(void *opaque, hwaddr offset, uint64_t value,
+                            unsigned size)
+{
+    S32FXOSCState *s = (S32FXOSCState *)opaque;
+    switch(offset) {
+    case FXOSC_CTRL:
+        s->ctrl = value & ~(BIT(1) | BIT(30) | (0xff << 8));
+        break;
+    case FXOSC_STAT:
+        /* Writes are ignored into status register */
+        break;
+    default:
+        DPRINTF(TYPE_S32_FXOSC, "Invalid Register Access @ offset: 0x%" HWADDR_PRIx " Read\n", offset);
+        break;
+    }
+    DPRINTF(TYPE_S32_FXOSC, "offset: 0x%" HWADDR_PRIx " Write: 0x%lx\n", offset, value);
+}
+
+static uint64_t s32_pll_read(void *opaque, hwaddr offset, unsigned size)
+{
+    S32PLLState *s = (S32PLLState *)opaque;
+    uint64_t value = 0;
+    int odev_idx = 0;
+    
+    switch(offset) {
+    case PLLCR_OFFSET:
+        value = s->ctrl;
+        break;
+    case PLLSR_OFFSET:
+        value = s->sts;
+        break;
+    case PLLDV_OFFSET:
+        value = s->div;
+        break;
+    case PLLFM_OFFSET:
+        value = s->fm;
+        break;
+    case PLLFD_OFFSET:
+        value = s->fd;
+        break;
+    case PLLCLKMUX_OFFSET:
+        value = s->mux;
+        break;
+    case PLLODIV_0_OFFSET ... PLLODIV_7_OFFSET:
+        odev_idx = (offset - PLLODIV_0_OFFSET) / 4;
+        if (odev_idx < s->no_divs) {
+            value = s->odiv[odev_idx];
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "[%s]%s: Bad register at offset 0x%"
+                      HWADDR_PRIx "\n", TYPE_S32_PLL, __func__, offset);
+
+        }
+        break;
+    default:
+        DPRINTF(TYPE_S32_PLL, "Invalid Register Access @ offset: 0x%" HWADDR_PRIx " Read\n", offset);
+        break;
+    }
+    DPRINTF(TYPE_S32_PLL, "offset: 0x%" HWADDR_PRIx " Read: 0x%lx\n", offset, value);
+    return value;
+}
+
+static void s32_pll_write(void *opaque, hwaddr offset, uint64_t value,
+                            unsigned size)
+{
+    S32PLLState *s = (S32PLLState *)opaque;
+    int odev_idx = 0;
+    
+    switch(offset) {
+    case PLLCR_OFFSET:
+        s->ctrl = value & 0x80000000;
+        if (s->ctrl & 0x80000000) {
+            s->sts &= ~BIT(2);
+        } else {
+            s->sts |= BIT(2);
+        }
+        break;
+    case PLLSR_OFFSET:
+        if (value & BIT(3))
+            s->sts &= ~BIT(3);
+        break;
+    case PLLDV_OFFSET:
+        s->div = value;
+        break;
+    case PLLFM_OFFSET:
+        s->fm = value;
+        break;
+    case PLLFD_OFFSET:
+        s->fd = value;
+        break;
+    case PLLCLKMUX_OFFSET:
+        s->mux = value;
+        break;
+    case PLLODIV_0_OFFSET ... PLLODIV_7_OFFSET:
+        odev_idx = (offset - PLLODIV_0_OFFSET) / 4;
+        if (odev_idx < s->no_divs) {
+            s->odiv[odev_idx] = value;
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "[%s]%s: Bad register at offset 0x%"
+                      HWADDR_PRIx "\n", TYPE_S32_PLL, __func__, offset);
+
+        }
+        break;
+    default:
+        DPRINTF(TYPE_S32_PLL, "Invalid Register Access @ offset: 0x%" HWADDR_PRIx " Read\n", offset);
+        break;
+    }
+}
+
 
 static const struct MemoryRegionOps s32_cgm_ops = {
     .read = s32_cgm_read,
@@ -347,6 +477,28 @@ static const struct MemoryRegionOps s32_dfs_ops = {
     },
 };
 
+static const struct MemoryRegionOps s32_fxosc_ops = {
+    .read = s32_fxosc_read,
+    .write = s32_fxosc_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .min_access_size = 4,
+        .max_access_size = 4,
+        .unaligned = false,
+    },
+};
+
+static const struct MemoryRegionOps s32_pll_ops = {
+    .read = s32_pll_read,
+    .write = s32_pll_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .min_access_size = 4,
+        .max_access_size = 4,
+        .unaligned = false,
+    },
+};
+
 static void s32_cgm_realize(DeviceState *dev, Error **errp)
 {
     S32CGMState *s = S32_CGM(dev);
@@ -362,6 +514,24 @@ static void s32_dfs_realize(DeviceState *dev, Error **errp)
 
     memory_region_init_io(&s->iomem, OBJECT(dev), &s32_dfs_ops, s,
                           TYPE_S32_DFS, 0x100);
+    sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->iomem);
+}
+
+static void s32_fxosc_realize(DeviceState *dev, Error **errp)
+{
+    S32FXOSCState *s = S32_FXOSC(dev);
+
+    memory_region_init_io(&s->iomem, OBJECT(dev), &s32_fxosc_ops, s,
+                          TYPE_S32_FXOSC, 0x10);
+    sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->iomem);
+}
+
+static void s32_pll_realize(DeviceState *dev, Error **errp)
+{
+    S32PLLState *s = S32_PLL(dev);
+
+    memory_region_init_io(&s->iomem, OBJECT(dev), &s32_pll_ops, s,
+                          TYPE_S32_PLL, 0x4000);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->iomem);
 }
 
@@ -391,20 +561,38 @@ static void s32_dfs_reset(DeviceState *dev)
     memset(s->dvport, 0, sizeof(s->dvport));
 }
 
+static void s32_fxosc_reset(DeviceState *dev)
+{
+    S32FXOSCState *s = S32_FXOSC(dev);
+    
+    s->ctrl = 0x19D00C0;
+}
+
+static void s32_pll_reset(DeviceState *dev)
+{
+    S32PLLState *s = S32_PLL(dev);
+    
+    s->ctrl = 0x80000000;
+    s->sts = 0x300;
+    s->div = 0xc3f1032;
+    s->fm = 0x40000000;
+    s->fd = 0x0;
+    s->mux = 0;
+    memset(s->odiv, 0, sizeof(s->odiv));
+}
+
 static const VMStateDescription vmstate_s32_cgm = {
     .name = TYPE_S32_CGM,
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(sdur, S32CGMState),
-        /* VMSTATE_UINT32_ARRAY(pcfs, S32CGMState, MCG_MAX_PCFS), */
-        /* VMSTATE_UINT32_ARRAY(mux_sel, S32CGMState, MCG_MAX_PCFS), */
         VMSTATE_END_OF_LIST()
     },
 };
 
 static const VMStateDescription vmstate_s32_dfs = {
-    .name = TYPE_S32_CGM,
+    .name = TYPE_S32_DFS,
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (const VMStateField[]) {
@@ -413,6 +601,32 @@ static const VMStateDescription vmstate_s32_dfs = {
         VMSTATE_UINT32(portreset, S32DFSState),
         VMSTATE_UINT32(ctl, S32DFSState),
         VMSTATE_UINT32_ARRAY(dvport, S32DFSState, DFS_NUM_PORTS),
+        VMSTATE_END_OF_LIST()
+    },
+};
+
+static const VMStateDescription vmstate_s32_fxosc = {
+    .name = TYPE_S32_FXOSC,
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (const VMStateField[]) {
+        VMSTATE_UINT32(ctrl, S32FXOSCState),
+        VMSTATE_END_OF_LIST()
+    },
+};
+
+static const VMStateDescription vmstate_s32_pll = {
+    .name = TYPE_S32_PLL,
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (const VMStateField[]) {
+        VMSTATE_UINT32(ctrl, S32PLLState),
+        VMSTATE_UINT32(sts, S32PLLState),
+        VMSTATE_UINT32(div, S32PLLState),
+        VMSTATE_UINT32(fm, S32PLLState),
+        VMSTATE_UINT32(fd, S32PLLState),
+        VMSTATE_UINT32(mux, S32PLLState),
+        VMSTATE_UINT32_ARRAY(odiv, S32PLLState, PLLDIV_MAX),
         VMSTATE_END_OF_LIST()
     },
 };
@@ -443,6 +657,11 @@ static Property dfs_properties[] = {
     DEFINE_PROP_END_OF_LIST(),
 };
 
+static Property pll_properties[] = {
+    DEFINE_PROP_UINT32("no-output-dividers", S32PLLState, no_divs , 8),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void s32_cgm_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -465,6 +684,27 @@ static void s32_dfs_class_init(ObjectClass *klass, void *data)
     device_class_set_props(dc, dfs_properties);
 }
 
+static void s32_fxosc_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+
+    dc->realize = s32_fxosc_realize;
+    dc->reset = s32_fxosc_reset;
+    dc->vmsd = &vmstate_s32_fxosc;
+    dc->desc = "S32 Fast Crystal Oscillator Digital Controller";
+}
+
+static void s32_pll_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+
+    dc->realize = s32_pll_realize;
+    dc->reset = s32_pll_reset;
+    dc->vmsd = &vmstate_s32_pll;
+    dc->desc = "S32 PLL Digital Interface";
+    device_class_set_props(dc, pll_properties);
+}
+
 static const TypeInfo s32_cgm_info = {
     .name          = TYPE_S32_CGM,
     .parent        = TYPE_SYS_BUS_DEVICE,
@@ -479,6 +719,20 @@ static const TypeInfo s32_dfs_info = {
     .class_init    = s32_dfs_class_init,
 };
 
+static const TypeInfo s32_fxosc_info = {
+    .name          = TYPE_S32_FXOSC,
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(S32FXOSCState),
+    .class_init    = s32_fxosc_class_init,
+};
+
+static const TypeInfo s32_pll_info = {
+    .name          = TYPE_S32_PLL,
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(S32PLLState),
+    .class_init    = s32_pll_class_init,
+};
+
 static void s32_cgm_register_types(void)
 {
     type_register_static(&s32_cgm_info);
@@ -489,5 +743,17 @@ static void s32_dfs_register_types(void)
     type_register_static(&s32_dfs_info);
 }
 
+static void s32_fxosc_register_types(void)
+{
+    type_register_static(&s32_fxosc_info);
+}
+
+static void s32_pll_register_types(void)
+{
+    type_register_static(&s32_pll_info);
+}
+
 type_init(s32_cgm_register_types)
 type_init(s32_dfs_register_types)
+type_init(s32_fxosc_register_types)
+type_init(s32_pll_register_types)    

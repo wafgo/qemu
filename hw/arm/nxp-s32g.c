@@ -18,7 +18,6 @@
  *  with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "hw/arm/nxp-s32g.h"
@@ -33,15 +32,22 @@
 #include "hw/qdev-clock.h"
 #include "target/arm/cpu-qom.h"
 #include "hw/sysbus.h"
-#include "hw/misc/s32g_mscm.h"
-#include "hw/misc/s32g_cgm.h"
 
 #define NAME_SIZE 20
 
+static const int cmu_fc_instances[] = {
+        0, 5, 6, 7, 8, 9, 10,
+        11, 12, 13, 14, 15, 16,
+        17, 18, 20, 21, 22, 27,
+        28, 39, 46, 47, 48, 49,
+        50, 51
+};
+    
 static void nxp_s32g_init(Object *obj)
 {
     NxpS32GState *s = NXP_S32G(obj);
     char name[NAME_SIZE];
+
     
     object_initialize_child(obj, "m7-cpu", &s->m7_cpu, TYPE_ARMV7M);
     s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
@@ -57,10 +63,26 @@ static void nxp_s32g_init(Object *obj)
 
     object_initialize_child(obj, "core-dfs", &s->core_dfs, TYPE_S32_DFS);
     object_initialize_child(obj, "periph-dfs", &s->periph_dfs, TYPE_S32_DFS);
+    object_initialize_child(obj, "fxosc", &s->fxosc, TYPE_S32_FXOSC);
+
+    object_initialize_child(obj, "core-pll", &s->core_pll, TYPE_S32_PLL);
+    object_initialize_child(obj, "periph-pll", &s->periph_pll, TYPE_S32_PLL);
+    object_initialize_child(obj, "accel-pll", &s->accel_pll, TYPE_S32_PLL);
+    object_initialize_child(obj, "ddr-pll", &s->ddr_pll, TYPE_S32_PLL);
 
     for (int i = 0; i < NXP_S32G_NUM_STM; ++i) {
         snprintf(name, NAME_SIZE, "stm%d", i);
         object_initialize_child(obj, name, &s->stm[i], TYPE_S32STM_TIMER);
+    }
+
+    for (int i = 0; i < ARRAY_SIZE(cmu_fc_instances); ++i) {
+        snprintf(name, NAME_SIZE, "cmu.fc%d", cmu_fc_instances[i]);
+        object_initialize_child(obj, name, &s->cmu_fc[i], TYPE_S32_CMU_FC);
+    }
+
+    for (int i = 0; i < NXP_S32G_NUM_LINFLEXD; ++i) {
+        snprintf(name, NAME_SIZE, "linflexd%d", i);
+        object_initialize_child(obj, name, &s->linflexd[i], TYPE_LINFLEXD_SERIAL);
     }
     /* object_initialize_child(obj, "pcie", &s->pcie, TYPE_DESIGNWARE_PCIE_HOST); */
 }
@@ -69,17 +91,6 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
 {
     create_unimplemented_device("siul2.0", 0x4009C000, 0x2000);
     create_unimplemented_device("siul2.1", 0x44010000, 0x2000);
-    /* create_unimplemented_device("mc_cgm_0", 0x40030000, 0x4000); */
-    /* create_unimplemented_device("mc_cgm_1", 0x40034000, 0x4000); */
-    /* create_unimplemented_device("mc_cgm_2", 0x44018000, 0x4000); */
-    /* create_unimplemented_device("mc_cgm_5", 0x40068000, 0x4000); */
-    /* create_unimplemented_device("core_dfs", 0x40054000, 0x4000); */
-    /* create_unimplemented_device("periph_dfs", 0x40058000, 0x4000); */
-    create_unimplemented_device("accel_pll", 0x40040000, 0x4000);
-    create_unimplemented_device("core_pll", 0x40038000, 0x4000);
-    create_unimplemented_device("ddr_pll", 0x40044000, 0x4000);
-    create_unimplemented_device("periph_pll", 0x4003C000, 0x4000);
-    create_unimplemented_device("fxosc", 0x40050000, 0x4000);
 
     create_unimplemented_device("swt0", 0x40100000, 0x4000);
     create_unimplemented_device("swt1", 0x40104000, 0x4000);
@@ -105,9 +116,9 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
 
     create_unimplemented_device("gmac", 0x4033C000, 0x5000);
 
-    create_unimplemented_device("linflex0", 0x401C8000, 0x4000);
-    create_unimplemented_device("linflex1", 0x401CC000, 0x4000);
-    create_unimplemented_device("linflex2", 0x402BC000, 0x4000);
+    /* create_unimplemented_device("linflex0", 0x401C8000, 0x4000); */
+    /* create_unimplemented_device("linflex1", 0x401CC000, 0x4000); */
+    /* create_unimplemented_device("linflex2", 0x402BC000, 0x4000); */
 
     create_unimplemented_device("flexcan0", 0x401B4000, 0x4000);
     create_unimplemented_device("flexcan1", 0x401BE000, 0x4000);
@@ -167,34 +178,6 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
     create_unimplemented_device("spi4", 0x402CC000, 0x4000);
     create_unimplemented_device("spi5", 0x402D0000, 0x4000);
 
-    create_unimplemented_device("cmu.fc.0", 0x4005C000, 0x20);
-    create_unimplemented_device("cmu.fc.5", 0x4005C0A0, 0x20);
-    create_unimplemented_device("cmu.fc.6", 0x4005C0C0, 0x20);
-    create_unimplemented_device("cmu.fc.7", 0x4005C0E0, 0x20);
-    create_unimplemented_device("cmu.fc.8", 0x4005C100, 0x20);
-    create_unimplemented_device("cmu.fc.9", 0x4005C120, 0x20);
-    create_unimplemented_device("cmu.fc.10", 0x4005C140, 0x20);
-    create_unimplemented_device("cmu.fc.11", 0x4005C160, 0x20);
-    create_unimplemented_device("cmu.fc.12", 0x4005C180, 0x20);
-    create_unimplemented_device("cmu.fc.13", 0x4005C1A0, 0x20);
-    create_unimplemented_device("cmu.fc.14", 0x4005C1C0, 0x20);
-    create_unimplemented_device("cmu.fc.15", 0x4005C1E0, 0x20);
-    create_unimplemented_device("cmu.fc.16", 0x4005C200, 0x20);
-    create_unimplemented_device("cmu.fc.17", 0x4005C220, 0x20);
-    create_unimplemented_device("cmu.fc.18", 0x4005C240, 0x20);
-    create_unimplemented_device("cmu.fc.20", 0x4005C280, 0x20);
-    create_unimplemented_device("cmu.fc.21", 0x4005C2A0, 0x20);
-    create_unimplemented_device("cmu.fc.22", 0x4005C2C0, 0x20);
-    create_unimplemented_device("cmu.fc.27", 0x4005C360, 0x20);
-    create_unimplemented_device("cmu.fc.28", 0x4005C380, 0x20);
-    create_unimplemented_device("cmu.fc.39", 0x4005C4E0, 0x20);
-    create_unimplemented_device("cmu.fc.46", 0x4005C5C0, 0x20);
-    create_unimplemented_device("cmu.fc.47", 0x4005C5E0, 0x20);
-    create_unimplemented_device("cmu.fc.48", 0x4005C600, 0x20);
-    create_unimplemented_device("cmu.fc.49", 0x4005C620, 0x20);
-    create_unimplemented_device("cmu.fc.50", 0x4005C640, 0x20);
-    create_unimplemented_device("cmu.fc.51", 0x4005C660, 0x20);
-
     create_unimplemented_device("cmu.fm.1", 0x4005C020, 0x20);
     create_unimplemented_device("cmu.fm.2", 0x4005C040, 0x20);
     create_unimplemented_device("cmu.fm.3", 0x4005C060, 0x20);
@@ -202,7 +185,6 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
 
     create_unimplemented_device("crc.0", 0x40190000, 0x200);
     
-    /* create_unimplemented_device("mc_me", 0x40088000, 0x4000); */
     create_unimplemented_device("pmc", 0x4008C000, 0x4000);
     
     create_unimplemented_device("sramc", 0x4019C000, 0x4000);
@@ -219,8 +201,6 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
     NxpS32GState *s = NXP_S32G(dev);
     DeviceState  *armv7m;
     
-    printf("%s\n", __FUNCTION__);
-
     if (!clock_has_source(s->sysclk)) {
         error_setg(errp, "sysclk clock must be wired up by the board code");
         return;
@@ -280,6 +260,31 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
     }
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->periph_dfs), 0, NXP_S32G_PERIPH_DFS_BASE_ADDR);
 
+    if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->fxosc), errp)) {
+        return;
+    }
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->fxosc), 0, NXP_S32G_FXOSC_BASE_ADDR);
+
+    if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->core_pll), errp)) {
+        return;
+    }
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->core_pll), 0, NXP_S32G_CORE_PLL_BASE_ADDR);
+
+    if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->periph_pll), errp)) {
+        return;
+    }
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->periph_pll), 0, NXP_S32G_PERIPH_PLL_BASE_ADDR);
+
+    if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->accel_pll), errp)) {
+        return;
+    }
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->accel_pll), 0, NXP_S32G_ACCEL_PLL_BASE_ADDR);
+
+    if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->ddr_pll), errp)) {
+        return;
+    }
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->ddr_pll), 0, NXP_S32G_DDR_PLL_BASE_ADDR);
+
     for (int i = 0; i < NXP_S32G_NUM_CGM; ++i) {
         hwaddr addr[] = {
             NXP_S32G_CGM0_BASE_ADDR,
@@ -297,14 +302,14 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
             hwaddr addr;
             unsigned int irq;
         } stm_table[NXP_S32G_NUM_STM] = {
-            { NXP_S32G_STM0_BASE_ADDR, NXP_S32G_STM0_IRQ },
-            { NXP_S32G_STM1_BASE_ADDR, NXP_S32G_STM1_IRQ },
-            { NXP_S32G_STM2_BASE_ADDR, NXP_S32G_STM2_IRQ },
-            { NXP_S32G_STM3_BASE_ADDR, NXP_S32G_STM3_IRQ },
-            { NXP_S32G_STM4_BASE_ADDR, NXP_S32G_STM4_IRQ },
-            { NXP_S32G_STM5_BASE_ADDR, NXP_S32G_STM5_IRQ },
-            { NXP_S32G_STM6_BASE_ADDR, NXP_S32G_STM6_IRQ },
-            { NXP_S32G_STM7_BASE_ADDR, NXP_S32G_STM7_IRQ },
+            { NXP_S32G_STM0_BASE_ADDR, NXP_S32G_STM0_M7_IRQ },
+            { NXP_S32G_STM1_BASE_ADDR, NXP_S32G_STM1_M7_IRQ },
+            { NXP_S32G_STM2_BASE_ADDR, NXP_S32G_STM2_M7_IRQ },
+            { NXP_S32G_STM3_BASE_ADDR, NXP_S32G_STM3_M7_IRQ },
+            { NXP_S32G_STM4_BASE_ADDR, NXP_S32G_STM4_M7_IRQ },
+            { NXP_S32G_STM5_BASE_ADDR, NXP_S32G_STM5_M7_IRQ },
+            { NXP_S32G_STM6_BASE_ADDR, NXP_S32G_STM6_M7_IRQ },
+            { NXP_S32G_STM7_BASE_ADDR, NXP_S32G_STM7_M7_IRQ },
         };
 
         if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->stm[i]), errp))
@@ -313,6 +318,29 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
         sysbus_mmio_map(SYS_BUS_DEVICE(&s->stm[i]), 0, stm_table[i].addr);
         sysbus_connect_irq(SYS_BUS_DEVICE(&s->stm[i]), 0, qdev_get_gpio_in(armv7m, stm_table[i].irq));
     }
+    for (int i = 0; i < ARRAY_SIZE(cmu_fc_instances); ++i) {
+        uint32_t addr = (NXP_S32G_CMU_FC_BASE_ADDR + (cmu_fc_instances[i] * 0x20));
+        if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->cmu_fc[i]), errp))
+            return;
+        sysbus_mmio_map(SYS_BUS_DEVICE(&s->cmu_fc[i]), 0, addr);
+    }
+
+    for (int i = 0; i < NXP_S32G_NUM_LINFLEXD; ++i) {
+        static const struct {
+            hwaddr addr;
+            unsigned int m7_irq;
+        } serial_sysmap[] = {
+            {NXP_S32G_LINFLEXD0_BASE_ADDR, NXP_S32G_LINFLEXD0_M7_IRQ},
+            {NXP_S32G_LINFLEXD1_BASE_ADDR, NXP_S32G_LINFLEXD1_M7_IRQ},
+            {NXP_S32G_LINFLEXD2_BASE_ADDR, NXP_S32G_LINFLEXD2_M7_IRQ},  
+        };
+
+        if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->linflexd[i]), errp))
+            return;
+        sysbus_mmio_map(SYS_BUS_DEVICE(&s->linflexd[i]), 0, serial_sysmap[i].addr);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->linflexd[i]), 0, qdev_get_gpio_in(armv7m, serial_sysmap[i].m7_irq));
+    }
+    
     nxp_s32g_create_unimplemented(s, errp);
 }
 
@@ -327,8 +355,6 @@ static void nxp_s32g_class_init(ObjectClass *oc, void *data)
     device_class_set_props(dc, nxp_s32g_properties);
     dc->realize = nxp_s32g_realize;
     dc->desc = "S32G SOC";
-    /* Reason: Uses serial_hd() in the realize() function */
-    dc->user_creatable = false;
 }
 
 static const TypeInfo nxp_s32g_type_info = {
