@@ -69,6 +69,10 @@ static void nxp_s32g_init(Object *obj)
         object_initialize_child(obj, "linflexd[*]", &s->linflexd[i], TYPE_LINFLEXD);
     }
 
+    for (i = 0; i < NXP_S32G_NUM_I2C; i++) {
+        object_initialize_child(obj, "i2c[*]", &s->i2c[i], TYPE_S32_I2C);
+    }
+
 }
 
 static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
@@ -103,11 +107,11 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
 
     create_unimplemented_device("rtc", 0x40060000, 0x4000);
 
-    create_unimplemented_device("i2c0", 0x401E4000, 0x4000);
+    /*create_unimplemented_device("i2c0", 0x401E4000, 0x4000);
     create_unimplemented_device("i2c1", 0x401E8000, 0x4000);
     create_unimplemented_device("i2c2", 0x401EC000, 0x4000);
     create_unimplemented_device("i2c3", 0x402D8000, 0x4000);
-    create_unimplemented_device("i2c4", 0x402DC000, 0x4000);
+    create_unimplemented_device("i2c4", 0x402DC000, 0x4000);*/
 
     create_unimplemented_device("gmac", 0x4033C000, 0x5000);
 
@@ -334,6 +338,24 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
         }
 
         sysbus_mmio_map(SYS_BUS_DEVICE(&s->linflexd[i]), 0, linflexd_table[i]);
+    }
+
+
+    /* Initialize all I2C */
+    for (i = 0; i < NXP_S32G_NUM_I2C; i++) {
+        hwaddr i2c_table[] = {
+            NXP_S32G_PERIPH_I2C_0_BASE_ADDR,
+            NXP_S32G_PERIPH_I2C_1_BASE_ADDR,
+            NXP_S32G_PERIPH_I2C_2_BASE_ADDR,
+            NXP_S32G_PERIPH_I2C_3_BASE_ADDR,
+            NXP_S32G_PERIPH_I2C_4_BASE_ADDR 
+        };
+
+        if (!sysbus_realize(SYS_BUS_DEVICE(&s->i2c[i]), errp)) {
+            return;
+        }
+
+        sysbus_mmio_map(SYS_BUS_DEVICE(&s->i2c[i]), 0, i2c_table[i]);
     }
 
     nxp_s32g_create_unimplemented(s, errp);
