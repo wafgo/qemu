@@ -18,13 +18,10 @@
 #include "target/arm/arm-powerctl.h"
 #include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
-#if defined(__linux__)
-#include <elf.h>
-#endif
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
-#define DEBUG_S32G_RDC 1
+#define DEBUG_S32G_RDC 0
 
 #ifndef DEBUG_S32G_RDC
 #define DEBUG_S32G_RDC 0

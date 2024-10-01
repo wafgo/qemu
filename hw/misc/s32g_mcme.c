@@ -21,7 +21,7 @@
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
-#define DEBUG_S32G_MCME 1
+#define DEBUG_S32G_MCME 0
 
 #ifndef DEBUG_S32G_MCME
 #define DEBUG_S32G_MCME 0
@@ -183,7 +183,7 @@ static void s32_mcme_handle_control_write(S32MCMEState *s, hwaddr offset, uint64
 static void s32_mcme_handle_partition_write(S32MCMEState *s, hwaddr offset, uint64_t value, unsigned size, uint32_t *regs)
 {
     uint32_t idx = mcme_offset2idx(offset);
-    printf("%s offset: 0x%" HWADDR_PRIx ", value: 0x%" PRIx64 " idx: 0x%x \n", __FUNCTION__, offset, value, idx);
+    DPRINTF("%s offset: 0x%" HWADDR_PRIx ", value: 0x%" PRIx64 " idx: 0x%x \n", __FUNCTION__, offset, value, idx);
     switch(offset) {
     case MC_ME_PRTN0_COFB0_CLKEN_OFFSET:
     {

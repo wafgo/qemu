@@ -24,7 +24,7 @@
 #endif
 
 
-#define DEBUG_S32G_MSCM 1
+#define DEBUG_S32G_MSCM 0
 
 #ifndef DEBUG_S32G_MSCM
 #define DEBUG_S32G_MSCM 0

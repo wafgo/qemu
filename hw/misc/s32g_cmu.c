@@ -22,7 +22,7 @@
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
-#define DEBUG_S32G_CMU 1
+#define DEBUG_S32G_CMU 0
 
 #ifndef DEBUG_S32G_CMU
 #define DEBUG_S32G_CMU 0

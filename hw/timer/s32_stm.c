@@ -30,7 +30,7 @@
 #include "qemu/log.h"
 #include "qemu/module.h"
 
-#define S32_STM_ERR_DEBUG 1
+#define S32_STM_ERR_DEBUG 0
 #ifndef S32_STM_ERR_DEBUG
 #define S32_STM_ERR_DEBUG 0
 #endif

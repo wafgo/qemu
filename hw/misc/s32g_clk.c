@@ -27,7 +27,7 @@
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
-#define DEBUG_S32G_CLOCK 1
+#define DEBUG_S32G_CLOCK 0
 
 #ifndef DEBUG_S32G_CLOCK
 #define DEBUG_S32G_CLOCK 0
