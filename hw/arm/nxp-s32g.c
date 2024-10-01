@@ -19,6 +19,7 @@
  *  with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
+
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "hw/arm/nxp-s32g.h"
@@ -70,6 +71,9 @@ static void nxp_s32g_init(Object *obj)
     object_initialize_child(obj, "periph-pll", &s->periph_pll, TYPE_S32_PLL);
     object_initialize_child(obj, "accel-pll", &s->accel_pll, TYPE_S32_PLL);
     object_initialize_child(obj, "ddr-pll", &s->ddr_pll, TYPE_S32_PLL);
+    object_initialize_child(obj, "sramc", &s->sramc, TYPE_S32_SRAMC);
+    object_initialize_child(obj, "sramc_1", &s->sramc_1, TYPE_S32_SRAMC);
+    object_initialize_child(obj, "stdb_sram_cfg", &s->stdb_sram_cfg, TYPE_S32_SRAMC);
 
     for (i = 0; i < NXP_S32G_NUM_STM; ++i) {
         snprintf(name, NAME_SIZE, "stm%d", i);
@@ -193,9 +197,9 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
     
     create_unimplemented_device("pmc", 0x4008C000, 0x4000);
     
-    create_unimplemented_device("sramc", 0x4019C000, 0x4000);
-    create_unimplemented_device("sramc_1", 0x401A0000, 0x4000);
-    create_unimplemented_device("stby_sram_cfg", 0x44028000, 0x4000);
+    /* create_unimplemented_device("sramc", 0x4019C000, 0x4000); */
+    /* create_unimplemented_device("sramc_1", 0x401A0000, 0x4000); */
+    /* create_unimplemented_device("stby_sram_cfg", 0x44028000, 0x4000); */
 
     create_unimplemented_device("qspic", 0x40134000, 0x4000);
     create_unimplemented_device("usdhc", 0x402F0000, 0x4000);
