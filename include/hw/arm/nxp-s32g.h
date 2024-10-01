@@ -37,6 +37,7 @@
 #include "hw/misc/s32g_fxosc.h"
 #include "hw/misc/s32g_pll.h"
 #include "hw/misc/s32g_cmu.h"
+#include "hw/misc/s32g_sramc.h"
 #include "hw/timer/s32_stm.h"
 #include "hw/char/nxp_linflexd.h"
 #include "hw/i2c/s32g_i2c.h"
@@ -54,37 +55,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_NUM_CMU_FC 27
 #define NXP_S32G_NUM_LINFLEXD  3
 #define NXP_S32G_NUM_I2C    5
-    
-struct NxpS32GState {
-    /*< private >*/
-    DeviceState parent_obj;
 
-    /*< public >*/
-    ARMv7MState              m7_cpu;
-    ARMCPU                   a53_cpu[NXP_S32G_NUM_A53_CPUS];
-    DesignwarePCIEHost       pcie;
-    S32MSCMState             mscm;
-    MemoryRegion             qspi_nor;
-    MemoryRegion             llce_as;
-    MemoryRegion             standby_ram;
-    MemoryRegion             sram;
-    uint32_t                 phy_num;
-    Clock                    *sysclk;
-    S32STMTimerState         stm[NXP_S32G_NUM_STM];
-    S32MCMEState             mod_entry;
-    S32RDCState              rdc;
-    S32CGMState              cgm[NXP_S32G_NUM_CGM];
-    S32DFSState              core_dfs;
-    S32DFSState              periph_dfs;
-    S32FXOSCState            fxosc;
-    S32PLLState              accel_pll;
-    S32PLLState              core_pll;
-    S32PLLState              periph_pll;
-    S32PLLState              ddr_pll;
-    LinFlexDState            linflexd[NXP_S32G_NUM_LINFLEXD];
-    S32GI2CState             i2c[NXP_S32G_NUM_I2C];
-    S32CMUFCState            cmu_fc[NXP_S32G_NUM_CMU_FC];
-};
 
 #define NXP_S32G_LLCE_AS_BASE 0x43000000
 #define NXP_S32G_LLCE_AS_SIZE (16 * MiB)
@@ -156,5 +127,44 @@ struct NxpS32GState {
 #define NXP_S32G_PERIPH_I2C_2_BASE_ADDR 0x401EC000
 #define NXP_S32G_PERIPH_I2C_3_BASE_ADDR 0x402D8000
 #define NXP_S32G_PERIPH_I2C_4_BASE_ADDR 0x402DC000
+
+#define NXP_S32G_SRAMC_BASE_ADDR 0x4019C000
+#define NXP_S32G_SRAMC_1_BASE_ADDR 0x401A0000
+#define NXP_S32G_STBY_SRAMC_CFG_BASE_ADDR 0x44028000
+
+struct NxpS32GState {
+    /*< private >*/
+    DeviceState parent_obj;
+
+    /*< public >*/
+    ARMv7MState              m7_cpu;
+    ARMCPU                   a53_cpu[NXP_S32G_NUM_A53_CPUS];
+    DesignwarePCIEHost       pcie;
+    S32MSCMState             mscm;
+    MemoryRegion             qspi_nor;
+    MemoryRegion             llce_as;
+    MemoryRegion             standby_ram;
+    MemoryRegion             sram;
+    uint32_t                 phy_num;
+    uint32_t                 debug_uart;
+    Clock                    *sysclk;
+    S32STMTimerState         stm[NXP_S32G_NUM_STM];
+    S32MCMEState             mod_entry;
+    S32RDCState              rdc;
+    S32CGMState              cgm[NXP_S32G_NUM_CGM];
+    S32DFSState              core_dfs;
+    S32DFSState              periph_dfs;
+    S32FXOSCState            fxosc;
+    S32PLLState              accel_pll;
+    S32PLLState              core_pll;
+    S32PLLState              periph_pll;
+    S32PLLState              ddr_pll;
+    LinFlexDState            linflexd[NXP_S32G_NUM_LINFLEXD];
+    S32GI2CState             i2c[NXP_S32G_NUM_I2C];
+    S32CMUFCState            cmu_fc[NXP_S32G_NUM_CMU_FC];
+    S32SRAMCState            sramc;
+    S32SRAMCState            sramc_1;
+    S32SRAMCState            stdb_sram_cfg;
+};
 
 #endif /* NXP_S32G_H */
