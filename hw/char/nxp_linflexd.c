@@ -107,6 +107,11 @@ static void linflexd_update_irq(LinFlexDState *s)
 static void linflexd_write_console(LinFlexDState *s, uint32_t ret)
 {
     unsigned char ch = ret & 0xFF;
+    if (!qemu_chr_fe_backend_connected(&s->chr)) {
+        /* If there's no backend, we can just say we consumed all data. */
+        return;
+    }
+
     qemu_chr_fe_write_all(&s->chr, &ch, 1);
 }
 
