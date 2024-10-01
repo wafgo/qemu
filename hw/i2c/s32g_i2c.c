@@ -112,12 +112,12 @@ static void s32g_i2c_write(void *opaque, hwaddr offset,
     case S32G_I2C_IBSR:
         // Clear flags by writing 1
         s->regs[offset] &= ~(value & (I2C_IBSR_IBIF | I2C_IBSR_IBAL));
-        printf("I2C Interrupt cleared \n");
+        DPRINTF("I2C Interrupt cleared \n");
         break;
     case S32G_I2C_IBDR:
         s->regs[offset] = value;
 
-        printf("I2C TX: %" PRIx64 "\n", value);
+        DPRINTF("I2C TX: %" PRIx64 "\n", value);
         // set IBIF Bus interrupt flag & Transfer complete flag
         s->regs[S32G_I2C_IBSR] = 0x0082; // S32G2 Reference Manual, Rev. 2, Pg 2136
         break;
