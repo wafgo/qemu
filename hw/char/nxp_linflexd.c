@@ -13,6 +13,7 @@
 #include "hw/char/nxp_linflexd.h"
 #include "hw/irq.h"
 #include "hw/qdev-properties.h"
+#include "hw/qdev-properties-system.h"
 #include "hw/registerfields.h"
 #include "migration/vmstate.h"
 #include "qemu/log.h"
@@ -49,8 +50,7 @@
 
 #define LINFLEXD_UARTCR_RXEN BIT(5)
 
-
-#define DEBUG_NXP_LINFLEXD 1
+#define DEBUG_NXP_LINFLEXD 0
 
 #ifndef DEBUG_NXP_LINFLEXD
 #define DEBUG_NXP_LINFLEXD 0
@@ -107,8 +107,7 @@ static void linflexd_update_irq(LinFlexDState *s)
 static void linflexd_write_console(LinFlexDState *s, uint32_t ret)
 {
     unsigned char ch = ret & 0xFF;
-    printf("%c", ch);
-    fflush(stdout);
+    qemu_chr_fe_write_all(&s->chr, &ch, 1);
 }
 
 static uint64_t linflexd_read(void *opaque, hwaddr offset, unsigned size)
@@ -395,19 +394,19 @@ static void linflexd_event(void *opaque, QEMUChrEvent event)
 {
     switch(event) {
     case CHR_EVENT_BREAK:
-        printf("%s: ---> CHR_EVENT_BREAK\n", __FUNCTION__);
+        DPRINTF("%s: ---> CHR_EVENT_BREAK\n", __FUNCTION__);
         break;
     case CHR_EVENT_OPENED:
-        printf("%s: ---> CHR_EVENT_OPENED\n", __FUNCTION__);
+        DPRINTF("%s: ---> CHR_EVENT_OPENED\n", __FUNCTION__);
         break;
     case CHR_EVENT_MUX_IN:
-        printf("%s: ---> CHR_EVENT_MUX_IN\n", __FUNCTION__);
+        DPRINTF("%s: ---> CHR_EVENT_MUX_IN\n", __FUNCTION__);
         break;
     case CHR_EVENT_MUX_OUT:
-        printf("%s: ---> CHR_EVENT_MUX_OUT\n", __FUNCTION__);
+        DPRINTF("%s: ---> CHR_EVENT_MUX_OUT\n", __FUNCTION__);
         break;
     case CHR_EVENT_CLOSED:
-        printf("%s: ---> CHR_EVENT_CLOSED\n", __FUNCTION__);
+        DPRINTF("%s: ---> CHR_EVENT_CLOSED\n", __FUNCTION__);
         break;
     }
 }
@@ -458,6 +457,11 @@ static void linflexd_reset(DeviceState *dev)
     timer_del(&s->ageing_timer);
 }
 
+static Property linflexd_serial_properties[] = {
+    DEFINE_PROP_CHR("chardev", LinFlexDState, chr),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void linflexd_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -467,6 +471,7 @@ static void linflexd_class_init(ObjectClass *klass, void *data)
     dc->reset = linflexd_reset;
     set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
     dc->desc = "LinFlexD UART";
+    device_class_set_props(dc, linflexd_serial_properties);
 }
 
 static const TypeInfo linflexd_info = {

@@ -32,6 +32,8 @@
 #include "exec/address-spaces.h"
 #include "hw/arm/nxp-s32g.h"
 
+#define UART_DEBUG_MODULE 1
+
 struct HDK11MachineClass {
     MachineClass parent;
 };
@@ -77,6 +79,7 @@ static void hdk11_init(MachineState *machine)
     memory_region_add_subregion(get_system_memory(), 0x80000000, machine->ram);
     
     s32 = NXP_S32G(object_new(TYPE_NXP_S32G));
+    qdev_prop_set_uint32(DEVICE(s32), "debug-uart", UART_DEBUG_MODULE);
     hdk->xtal = clock_new(OBJECT(hdk), "XTAL");
     clock_set_hz(hdk->xtal, HDK_XTAL_FREQ);
     qdev_connect_clock_in(DEVICE(s32), "sysclk", hdk->xtal);
