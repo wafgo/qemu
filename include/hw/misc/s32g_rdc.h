@@ -40,6 +40,9 @@ struct S32RDCState {
 
     /* <public> */
     MemoryRegion iomem;
+    bool rd1_unlocked;
+    bool rd2_unlocked;
+    bool rd3_unlocked;
     uint32_t rd1_ctrl;
     uint32_t rd2_ctrl;
     uint32_t rd3_ctrl;

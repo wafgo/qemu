@@ -18,7 +18,9 @@
 #include "target/arm/arm-powerctl.h"
 #include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
+#if defined(__linux__)
 #include <elf.h>
+#endif
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
@@ -52,8 +54,9 @@ static uint64_t s32_rdc_read(void *opaque, hwaddr offset, unsigned size)
         value = s->rd3_ctrl;
         break;
     case RDC_RD1_STAT_REG_OFFSET:
-        if (!(s->rd1_ctrl & RDC_CTRL_INTERFACE_DISABLE_MASK)) 
+        if (s->rd1_unlocked == true) {
             s->rd1_stat &= ~RDC_STATUS_INTERFACE_DISABLE_REQ_ACK_MASK;
+        }
         value = s->rd1_stat;
         break;
     case RDC_RD2_STAT_REG_OFFSET:
@@ -72,7 +75,7 @@ static uint64_t s32_rdc_read(void *opaque, hwaddr offset, unsigned size)
         break;
                     
     }
-    DPRINTF("offset: 0x%" HWADDR_PRIx ", value : 0x%lx\n", offset, value);
+    DPRINTF("offset: 0x%" HWADDR_PRIx ", value : 0x%" PRIx64 "\n", offset, value);
     return value;
 }
 
@@ -80,22 +83,47 @@ static void s32_rdc_write(void *opaque, hwaddr offset, uint64_t value,
                            unsigned size)
 {
     S32RDCState *s = (S32RDCState *)opaque;
+    
     switch(offset) {
     case RDC_RD1_CTRL_REG_OFFSET:
+        s->rd1_unlocked = (value & BIT(31)) ? true : false;
         s->rd1_ctrl = value;
+        if (s->rd1_unlocked) {
+            s->rd1_stat &= ~(BIT(3) | BIT(4));
+            if (s->rd1_ctrl & BIT(3)) {
+                s->rd1_stat |= BIT(3);
+            }
+            s->rd1_stat |= (s->rd1_ctrl & BIT(3));
+        }
         break;
     case RDC_RD2_CTRL_REG_OFFSET:
+        s->rd2_unlocked = (value & BIT(31)) ? true : false;
         s->rd2_ctrl = value;
+        if (s->rd2_unlocked) {
+            s->rd2_stat &= ~(BIT(3) | BIT(4));
+            if (s->rd2_ctrl & BIT(3)) {
+                s->rd2_stat |= BIT(3);
+            }
+            s->rd2_stat |= (s->rd2_ctrl & BIT(3));
+        }
         break;
     case RDC_RD3_CTRL_REG_OFFSET:
+        s->rd3_unlocked = (value & BIT(31)) ? true : false;
         s->rd3_ctrl = value;
+        if (s->rd3_unlocked) {
+            s->rd3_stat &= ~(BIT(3) | BIT(4));
+            if (s->rd3_ctrl & BIT(3)) {
+                s->rd3_stat |= BIT(3);
+            }
+            s->rd3_stat |= (s->rd3_ctrl & BIT(3));
+        }
         break;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "[%s]%s: Bad register at offset 0x%"
                       HWADDR_PRIx "\n", TYPE_S32_RDC, __func__, offset);
         break;
     }
-    DPRINTF("offset: 0x%" HWADDR_PRIx " Write: 0x%lx\n", offset, value);
+    DPRINTF("offset: 0x%" HWADDR_PRIx " Write: 0x%" PRIx64 "\n", offset, value);
 }
 
 
@@ -130,6 +158,10 @@ static void s32_rdc_reset(DeviceState *dev)
     s->rd1_stat = 0x00000018;
     s->rd2_stat = 0x00000018;
     s->rd3_stat = 0x00000018;
+
+    s->rd1_unlocked = false;
+    s->rd2_unlocked = false;
+    s->rd3_unlocked = false;
 }
 
 static const VMStateDescription vmstate_s32_rdc = {

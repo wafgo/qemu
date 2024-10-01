@@ -18,7 +18,6 @@
 #include "target/arm/arm-powerctl.h"
 #include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
-#include <elf.h>
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
@@ -123,7 +122,6 @@ static const VMStateDescription vmstate_s32_mcme = {
 
 static uint64_t s32_mcme_read(void *opaque, hwaddr offset, unsigned size)
 {
-    uint32_t value = 0;
     S32MCMEState *s = (S32MCMEState *)opaque;
     mcme_region_t region = s32_mcme_region_type_from_offset(offset);
     uint32_t idx = mcme_offset2idx(offset);
@@ -133,7 +131,7 @@ static uint64_t s32_mcme_read(void *opaque, hwaddr offset, unsigned size)
                       HWADDR_PRIx "\n", TYPE_S32_MCME, __func__, offset);
     }
     
-    DPRINTF("offset: 0x%" HWADDR_PRIx " region: %s => 0x%" PRIx32 "\n", offset, s32_mcme_region_name(s32_mcme_region_type_from_offset(offset)), value);
+    DPRINTF("offset: 0x%" HWADDR_PRIx " region: %s => 0x%" PRIx32 " idx = 0x%i\n", offset, s32_mcme_region_name(s32_mcme_region_type_from_offset(offset)), regs[idx], idx);
 
 
     return regs[idx];
@@ -141,19 +139,40 @@ static uint64_t s32_mcme_read(void *opaque, hwaddr offset, unsigned size)
 
 static void s32_mcme_handle_control_write(S32MCMEState *s, hwaddr offset, uint64_t value, unsigned size)
 {
-    printf("%s offset: 0x%" HWADDR_PRIx ", value: 0x%lx \n", __FUNCTION__, offset, value);
+    int bit = 0;
+    int core_id = 0;
+    int pt_region = MCME_REGION_PARTITION0;
     switch (offset) {
     case MC_ME_CTL_KEY_OFFSET:
         if (s->ctrl_regs[offset] == 0x5AF0 && value == 0xA50F) {
             s->unlocked = true;
-            s->ctrl_regs[offset] = 0;
-            s->part0_regs[MCME_PART_STATUS_OFFSET_INDEX] = s->part0_regs[MCME_PART_UPD_OFFSET_INDEX];
-            s->part1_regs[MCME_PART_STATUS_OFFSET_INDEX] = s->part1_regs[MCME_PART_UPD_OFFSET_INDEX];
-            s->part2_regs[MCME_PART_STATUS_OFFSET_INDEX] = s->part2_regs[MCME_PART_UPD_OFFSET_INDEX];
-            s->part3_regs[MCME_PART_STATUS_OFFSET_INDEX] = s->part3_regs[MCME_PART_UPD_OFFSET_INDEX];
-        } else {
-            s->ctrl_regs[offset] = value;
+            for (pt_region = MCME_REGION_PARTITION0; pt_region < MCME_REGION_NO; ++pt_region) {
+                uint32_t* regs = region_to_pt_regs(s, pt_region);
+                for (bit = 0; bit < 32; ++bit) {
+                    /* if IP should be updated, the update bit is set */
+                    if (regs[MCME_PART_UPD_OFFSET_INDEX] & BIT(bit)) {
+                        regs[MCME_PART_UPD_OFFSET_INDEX] &= ~BIT(bit);
+                        if (regs[MCME_PART_CONF_OFFSET_INDEX] & BIT(bit))
+                            regs[MCME_PART_STATUS_OFFSET_INDEX] |= BIT(bit);
+                        else
+                            regs[MCME_PART_STATUS_OFFSET_INDEX] &= ~BIT(bit);
+                    }
+                    /* do the same for the core specific registers */
+                    for (core_id = 0; core_id < MC_ME_MAX_CORE_ID; ++core_id) {
+                        int core_id_offset = MCME_PART_CONF_CORE0_PUPD_INDEX + (core_id * 8);
+                        if (regs[core_id_offset] & BIT(bit)) {
+                            regs[core_id_offset] &= ~BIT(bit);
+                            if (regs[core_id_offset - 1] & BIT(bit))
+                                regs[core_id_offset + 1] |= BIT(bit);
+                            else
+                                regs[core_id_offset + 1] &= ~BIT(bit);
+                        }
+                        regs[core_id_offset + 1] |= BIT(31);
+                    }
+                }
+            }
         }
+        s->ctrl_regs[offset] = value;
         break;
     default:
         s->ctrl_regs[offset] = value;
@@ -164,7 +183,27 @@ static void s32_mcme_handle_control_write(S32MCMEState *s, hwaddr offset, uint64
 static void s32_mcme_handle_partition_write(S32MCMEState *s, hwaddr offset, uint64_t value, unsigned size, uint32_t *regs)
 {
     uint32_t idx = mcme_offset2idx(offset);
-    printf("%s offset: 0x%" HWADDR_PRIx ", value: 0x%lx, idx: 0x%x \n", __FUNCTION__, offset, value, idx);
+    printf("%s offset: 0x%" HWADDR_PRIx ", value: 0x%" PRIx64 " idx: 0x%x \n", __FUNCTION__, offset, value, idx);
+    switch(offset) {
+    case MC_ME_PRTN0_COFB0_CLKEN_OFFSET:
+    {
+        uint32_t status_idx = mcme_offset2idx(MC_ME_PRTN0_COFB0_STAT_OFFSET);
+        regs[status_idx] = value;
+    }
+    break;
+    case MC_ME_PRTN2_COFB0_CLKEN_OFFSET:
+    {
+        uint32_t status_idx = mcme_offset2idx(MC_ME_PRTN2_COFB0_STAT_OFFSET);
+        regs[status_idx] = value;
+    }
+    break;
+    case MC_ME_PRTN3_COFB0_CLKEN_OFFSET:
+    {
+        uint32_t status_idx = mcme_offset2idx(MC_ME_PRTN3_COFB0_STAT_OFFSET);
+        regs[status_idx] = value;
+    }
+    break;
+    }
     regs[idx] = value;
 }
 

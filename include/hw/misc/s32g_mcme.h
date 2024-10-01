@@ -90,20 +90,29 @@ typedef enum {
 #define MC_ME_PRTN3_COFB0_STAT_OFFSET      0x0710  // Partition 3 COFB Set 0 Clock Status Register (PRTN3_COFB0_STAT)
 #define MC_ME_PRTN3_COFB0_CLKEN_OFFSET     0x0730  // Partition 3 COFB Set 0 Clock Enable Register (PRTN3_COFB0_CLKEN)
 
+#define MC_ME_MAX_CORE_ID 4
+
 #define TYPE_S32_MCME "s32.mcme"
 
 #define MC_ME_CTRL_REGS ((MC_ME_MAIN_COREID_OFFSET / 4) + 1)
-#define MC_ME_PART0_REGS                                                       \
-  (((MC_ME_PRTN0_CORE3_ADDR_OFFSET - MC_ME_PRTN0_PCONF_OFFSET) / 4) + 1)
-#define MC_ME_PART1_REGS                                                       \
-  (((MC_ME_PRTN1_CORE3_ADDR_OFFSET - MC_ME_PRTN1_PCONF_OFFSET) / 4) + 1)
-#define MC_ME_PART2_REGS                                                       \
-  (((MC_ME_PRTN2_COFB0_CLKEN_OFFSET - MC_ME_PRTN2_PCONF_OFFSET) / 4) + 1)
-#define MC_ME_PART3_REGS                                                       \
-  (((MC_ME_PRTN3_COFB0_CLKEN_OFFSET - MC_ME_PRTN3_PCONF_OFFSET) / 4) + 1)
+#define MC_ME_PT_REGS_COUNT  (0xb0 / 4)
+#define MC_ME_PART0_REGS  MC_ME_PT_REGS_COUNT
+#define MC_ME_PART1_REGS  MC_ME_PT_REGS_COUNT
+#define MC_ME_PART2_REGS  MC_ME_PT_REGS_COUNT
+#define MC_ME_PART3_REGS  MC_ME_PT_REGS_COUNT
 
-#define MCME_PART_UPD_OFFSET_INDEX     0x1
-#define MCME_PART_STATUS_OFFSET_INDEX 0x2
+#define MCME_PART_CONF_OFFSET_INDEX     0x0
+#define MCME_PART_UPD_OFFSET_INDEX      0x1
+#define MCME_PART_STATUS_OFFSET_INDEX   0x2
+
+#define MCME_PART_CONF_CORE0_PCONF_INDEX 0x10
+#define MCME_PART_CONF_CORE0_PUPD_INDEX 0x11
+#define MCME_PART_CONF_CORE0_STAT_INDEX 0x12
+#define MCME_PART_CONF_CORE0_ADDR_INDEX 0x13
+
+#define MCME_PART_CONF_CORE1_PCONF_INDEX 0x18
+#define MCME_PART_CONF_CORE2_PCONF_INDEX 0x20
+
 
 OBJECT_DECLARE_SIMPLE_TYPE(S32MCMEState, S32_MCME)
 

@@ -21,7 +21,9 @@
 #include "target/arm/arm-powerctl.h"
 #include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
+#if defined(__linux__)
 #include <elf.h>
+#endif
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
@@ -209,7 +211,7 @@ static uint64_t s32_dfs_read(void *opaque, hwaddr offset, unsigned size)
         DPRINTF(TYPE_S32_DFS, "Invalid Register Access @ offset: 0x%" HWADDR_PRIx " Read\n", offset);
         break;
     }
-    DPRINTF(TYPE_S32_DFS, "offset: 0x%" HWADDR_PRIx " Read: 0x%lx\n", offset, value);
+    DPRINTF(TYPE_S32_DFS, "offset: 0x%" HWADDR_PRIx " Read: 0x%" PRIx64 "\n", offset, value);
     return value;
 }
 
@@ -239,7 +241,7 @@ static uint64_t s32_cgm_read(void *opaque, hwaddr offset, unsigned size)
         DPRINTF(TYPE_S32_CGM, "Invalid Register Access @ offset: 0x%" HWADDR_PRIx " Read\n", offset);
         break;
     }
-    DPRINTF(TYPE_S32_CGM, "offset: 0x%" HWADDR_PRIx " Read: 0x%lx\n", offset, value);
+    DPRINTF(TYPE_S32_CGM, "offset: 0x%" HWADDR_PRIx " Read: 0x%" PRIx64 "\n", offset, value);
     return value;
 }
 
@@ -269,7 +271,7 @@ static void s32_dfs_write(void *opaque, hwaddr offset, uint64_t value,
         DPRINTF(TYPE_S32_DFS, "Invalid Register Access @ offset: 0x%" HWADDR_PRIx " Write\n", offset);
         break;
     }
-    DPRINTF(TYPE_S32_DFS, "offset: 0x%" HWADDR_PRIx " Write: 0x%lx\n", offset, value);
+    DPRINTF(TYPE_S32_DFS, "offset: 0x%" HWADDR_PRIx " Write: 0x%" PRIx64 "\n", offset, value);
 }
 
 static void s32_cgm_write(void *opaque, hwaddr offset, uint64_t value,
@@ -320,10 +322,10 @@ static void s32_cgm_write(void *opaque, hwaddr offset, uint64_t value,
         }
         break;
     default:
-        DPRINTF(TYPE_S32_CGM, "Invalid Register Access @ offset: 0x%" HWADDR_PRIx " Write: 0x%lx\n", offset, value);
+        DPRINTF(TYPE_S32_CGM, "Invalid Register Access @ offset: 0x%" HWADDR_PRIx " Write: 0x%" PRIx64 "\n", offset, value);
         break;
     }
-    DPRINTF(TYPE_S32_CGM, "offset: 0x%" HWADDR_PRIx " Write: 0x%lx\n", offset, value);
+    DPRINTF(TYPE_S32_CGM, "offset: 0x%" HWADDR_PRIx " Write: 0x%" PRIx64 "\n", offset, value);
 }
 
 static uint64_t s32_fxosc_read(void *opaque, hwaddr offset, unsigned size)

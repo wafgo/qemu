@@ -74,7 +74,7 @@ static void hdk11_init(MachineState *machine)
         exit(EXIT_FAILURE);
     }
 
-    memory_region_add_subregion(get_system_memory(), 0x40000000, machine->ram);
+    memory_region_add_subregion(get_system_memory(), 0x80000000, machine->ram);
     
     s32 = NXP_S32G(object_new(TYPE_NXP_S32G));
     hdk->xtal = clock_new(OBJECT(hdk), "XTAL");
@@ -101,7 +101,7 @@ static void hdk11_machine_init(MachineClass *mc)
     mc->desc = "HDK1.1 (Cortex-M7 + Cortex-A53)";
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-m7");
     mc->valid_cpu_types = valid_cpu_types;
-    mc->default_ram_size = 4 * GiB;
+    mc->default_ram_size = 2 * GiB;
     mc->init = hdk11_init;
     mc->block_default_type = IF_MTD;
     mc->units_per_default_bus = 1;

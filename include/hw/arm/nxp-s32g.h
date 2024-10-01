@@ -38,7 +38,8 @@
 #include "hw/misc/s32g_pll.h"
 #include "hw/misc/s32g_cmu.h"
 #include "hw/timer/s32_stm.h"
-#include "hw/char/linflexd.h"
+#include "hw/char/nxp_linflexd.h"
+#include "hw/i2c/s32g_i2c.h"
 
 #define TYPE_NXP_S32G "nxp-s32g"
 OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
@@ -52,7 +53,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_NUM_CGM    4
 #define NXP_S32G_NUM_CMU_FC 27
 #define NXP_S32G_NUM_LINFLEXD  3
-
+#define NXP_S32G_NUM_I2C    5
+    
 struct NxpS32GState {
     /*< private >*/
     DeviceState parent_obj;
@@ -63,6 +65,7 @@ struct NxpS32GState {
     DesignwarePCIEHost       pcie;
     S32MSCMState             mscm;
     MemoryRegion             qspi_nor;
+    MemoryRegion             llce_as;
     MemoryRegion             standby_ram;
     MemoryRegion             sram;
     uint32_t                 phy_num;
@@ -78,9 +81,13 @@ struct NxpS32GState {
     S32PLLState              core_pll;
     S32PLLState              periph_pll;
     S32PLLState              ddr_pll;
+    LinFlexDState            linflexd[NXP_S32G_NUM_LINFLEXD];
+    S32GI2CState             i2c[NXP_S32G_NUM_I2C];
     S32CMUFCState            cmu_fc[NXP_S32G_NUM_CMU_FC];
-    LINFLEXDSerialState      linflexd[NXP_S32G_NUM_LINFLEXD];
 };
+
+#define NXP_S32G_LLCE_AS_BASE 0x43000000
+#define NXP_S32G_LLCE_AS_SIZE (16 * MiB)
 
 #define NXP_S32G_STANDBY_RAM_BASE 0x24000000
 #define NXP_S32G_STANDBY_RAM_SIZE (32 * KiB)
@@ -118,7 +125,7 @@ struct NxpS32GState {
 #define NXP_S32G_STM7_M7_IRQ       31
 
 #define NXP_S32G_MCME_BASE_ADDR 0x40088000
-#define NXP_S32G_RDC_BASE_ADDR 0x40080000
+#define NXP_S32G_RDC_BASE_ADDR  0x40080000
 
 #define NXP_S32G_CGM0_BASE_ADDR 0x40030000
 #define NXP_S32G_CGM1_BASE_ADDR 0x40034000
@@ -136,12 +143,18 @@ struct NxpS32GState {
 
 #define NXP_S32G_CMU_FC_BASE_ADDR      0x4005C000
 
-#define NXP_S32G_LINFLEXD0_BASE_ADDR 0x401C8000
+#define NXP_S32G_PERIPH_LINFLEXD_0_BASE_ADDR 0x401C8000
 #define NXP_S32G_LINFLEXD0_M7_IRQ 82
 
-#define NXP_S32G_LINFLEXD1_BASE_ADDR 0x401CC000
+#define NXP_S32G_PERIPH_LINFLEXD_1_BASE_ADDR 0x401CC000
 #define NXP_S32G_LINFLEXD1_M7_IRQ 83
-
-#define NXP_S32G_LINFLEXD2_BASE_ADDR 0x402BC000
+#define NXP_S32G_PERIPH_LINFLEXD_2_BASE_ADDR 0x402BC000
 #define NXP_S32G_LINFLEXD2_M7_IRQ 84
+    
+#define NXP_S32G_PERIPH_I2C_0_BASE_ADDR 0x401E4000
+#define NXP_S32G_PERIPH_I2C_1_BASE_ADDR 0x401E8000
+#define NXP_S32G_PERIPH_I2C_2_BASE_ADDR 0x401EC000
+#define NXP_S32G_PERIPH_I2C_3_BASE_ADDR 0x402D8000
+#define NXP_S32G_PERIPH_I2C_4_BASE_ADDR 0x402DC000
+
 #endif /* NXP_S32G_H */
