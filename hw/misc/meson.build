@@ -120,6 +120,7 @@ system_ss.add(when: 'CONFIG_S32G_MCME', if_true: files('s32g_mcme.c'))
 system_ss.add(when: 'CONFIG_S32G_RDC', if_true: files('s32g_rdc.c'))
 system_ss.add(when: 'CONFIG_S32G_CLK', if_true: files('s32g_clk.c'))
 system_ss.add(when: 'CONFIG_S32G_CMU', if_true: files('s32g_cmu.c'))
+system_ss.add(when: 'CONFIG_S32G_SRAMC', if_true: files('s32g_sramc.c'))
 
 
 system_ss.add(when: 'CONFIG_TZ_MPC', if_true: files('tz-mpc.c'))
