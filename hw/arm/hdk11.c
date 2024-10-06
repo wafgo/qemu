@@ -17,6 +17,7 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, see <http://www.gnu.org/licenses/>.
  */
+
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/units.h"
@@ -31,6 +32,7 @@
 #include "hw/arm/armv7m.h"
 #include "exec/address-spaces.h"
 #include "hw/arm/nxp-s32g.h"
+#include "hw/loader.h"
 
 #define UART_DEBUG_MODULE 1
 
@@ -57,12 +59,9 @@ static void hdk11_init(MachineState *machine)
 
     HDK11MachineState *hdk = HDK11_MACHINE(machine);
     NxpS32GState *s32;
-
-    /* HDK11MachineClass *mmc = HDK11_MACHINE_GET_CLASS(machine); */
-    /* MemoryRegion *system_memory = get_system_memory();x */
+    int size = 0;
     MachineClass *mc = MACHINE_GET_CLASS(machine);
     Error *err = NULL;
-
     /* BIOS is not supported by this board */
     if (machine->firmware) {
         error_report("BIOS not supported for this machine");
@@ -89,7 +88,12 @@ static void hdk11_init(MachineState *machine)
         error_reportf_err(err, "Couldn't realize S32G M7 Core: ");
         exit(1);
     }
-
+    size = load_image_targphys("/home/uia67865/devel/git/m7-car/src/car_s32g/car_sw/output/bin/CORTEXM_S32G27X_car_sw.bin", 0x100000, 2*MiB);
+    if (size > 0) {
+        printf("Successfully loaded CORTEXM_S32G27X_car_sw.bin @ 0x100000, size: 0x%x\n", size);
+    } else {
+        printf("Failed loading CORTEXM_S32G27X_car_sw.bin ret: %i\n", size);
+    }
     armv7m_load_kernel(ARM_CPU(first_cpu), machine->kernel_filename,
                        0, 0x400000);
 }

@@ -20,6 +20,7 @@
  */
 
 
+
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "hw/arm/nxp-s32g.h"
@@ -27,6 +28,7 @@
 #include "hw/usb/imx-usb-phy.h"
 #include "hw/boards.h"
 #include "hw/qdev-properties.h"
+#include "qom/object.h"
 #include "sysemu/sysemu.h"
 #include "chardev/char.h"
 #include "qemu/error-report.h"
@@ -34,6 +36,7 @@
 #include "hw/qdev-clock.h"
 #include "target/arm/cpu-qom.h"
 #include "hw/sysbus.h"
+#include "exec/address-spaces.h"
 
 #define NAME_SIZE 20
 
@@ -93,6 +96,13 @@ static void nxp_s32g_init(Object *obj)
 
     for (i = 0; i < NXP_S32G_NUM_I2C; i++) {
         object_initialize_child(obj, "i2c[*]", &s->i2c[i], TYPE_S32_I2C);
+    }
+
+    for (i = 0; i < NXP_S32G_NUM_EDMA; ++i) {
+        object_initialize_child(obj, "edma-mg[*]", &s->edma[i].mg, TYPE_NXP_EDMA);
+        object_initialize_child(obj, "edma-tcd[*]", &s->edma[i].tcd, TYPE_NXP_EDMA_TCD);
+        object_property_add_const_link(OBJECT(&s->edma[i].tcd), "dma-mr",
+                                   OBJECT(get_system_memory()));
     }
 
 }
@@ -204,8 +214,8 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
     create_unimplemented_device("qspic", 0x40134000, 0x4000);
     create_unimplemented_device("usdhc", 0x402F0000, 0x4000);
 
-    create_unimplemented_device("edma0", 0x40144000, 0x200);
-    create_unimplemented_device("edma1", 0x40244000, 0x200);
+    /* create_unimplemented_device("edma0", 0x40144000, 0x200); */
+    /* create_unimplemented_device("edma1", 0x40244000, 0x200); */
 
     create_unimplemented_device("dma_crc0", 0x4013C000, 0x100);
     create_unimplemented_device("dma_crc1", 0x4023C000, 0x100);
@@ -220,6 +230,47 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
 
     create_unimplemented_device("sema42", 0x40298000, 0x50);
     create_unimplemented_device("src", 0x4007c000, 0x100);
+}
+
+static void dma_controller_realize(NxpS32GState *s, Error **errp)
+{
+    int i;
+    int ch;
+    for (i = 0; i < NXP_S32G_NUM_EDMA; ++i) {
+        static const struct {
+            hwaddr mg_addr;
+            hwaddr tcd_addr;
+            unsigned int m7_irq_chl;
+            unsigned int m7_irq_chu;
+            unsigned int m7_irq_err;
+        } dma_sysmap[] = {
+            {NXP_S32G_EDMA0_MG_BASE_ADDR, NXP_S32G_EDMA0_TCD_BASE_ADDR, NXP_S32G_EDMA0_CH_LOWER_IRQ, NXP_S32G_EDMA0_CH_UPPER_IRQ, NXP_S32G_EDMA0_CH_ERR_IRQ},
+            {NXP_S32G_EDMA1_MG_BASE_ADDR, NXP_S32G_EDMA1_TCD_BASE_ADDR, NXP_S32G_EDMA1_CH_LOWER_IRQ, NXP_S32G_EDMA1_CH_UPPER_IRQ, NXP_S32G_EDMA1_CH_ERR_IRQ},
+        };
+
+        qdev_prop_set_uint32(DEVICE(&s->edma[i].tcd), "number-channels", NXP_S32G_NUM_EDMA_CHANNELS);
+        switch(i) {
+        case 0:
+            qdev_prop_set_uint32(DEVICE(&s->edma[i].tcd), "sbr-reset", 0x00008006);
+            break;
+        case 1:
+            qdev_prop_set_uint32(DEVICE(&s->edma[i].tcd), "sbr-reset", 0x00008007);
+            break;
+        default:
+            break;
+        }
+        
+        if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->edma[i].mg), errp))
+            return;
+        if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->edma[i].tcd), errp))
+            return;
+        sysbus_mmio_map(SYS_BUS_DEVICE(&s->edma[i].mg), 0, dma_sysmap[i].mg_addr);
+        for (ch = 0; ch < NXP_S32G_NUM_EDMA_CHANNELS; ++ch)
+            sysbus_mmio_map(SYS_BUS_DEVICE(&s->edma[i].tcd), ch, dma_sysmap[i].tcd_addr + (ch * NXP_S32G_EDMA_CHANNEL_MMIO_SIZE));
+        /* sysbus_connect_irq(SYS_BUS_DEVICE(&s->edma[i].tcd), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu), dma_sysmap[i].m7_irq_chl)); */
+        /* sysbus_connect_irq(SYS_BUS_DEVICE(&s->edma[i].tcd), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu), dma_sysmap[i].m7_irq_chu)); */
+        /* sysbus_connect_irq(SYS_BUS_DEVICE(&s->edma[i].tcd), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu), dma_sysmap[i].m7_irq_err)); */
+    }
 }
 
 static void sram_controller_realize(NxpS32GState *s, Error **errp)
@@ -449,7 +500,7 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
     cmu_realize(s, errp);
     linflexd_realize(s, errp);
     i2c_realize(s, errp);
-
+    dma_controller_realize(s, errp);
     nxp_s32g_create_unimplemented(s, errp);
 }
 

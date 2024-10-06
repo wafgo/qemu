@@ -38,6 +38,7 @@
 #include "hw/misc/s32g_pll.h"
 #include "hw/misc/s32g_cmu.h"
 #include "hw/misc/s32g_sramc.h"
+#include "hw/dma/nxp_edma.h"
 #include "hw/timer/s32_stm.h"
 #include "hw/char/nxp_linflexd.h"
 #include "hw/i2c/s32g_i2c.h"
@@ -54,7 +55,10 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_NUM_CGM    4
 #define NXP_S32G_NUM_CMU_FC 27
 #define NXP_S32G_NUM_LINFLEXD  3
-#define NXP_S32G_NUM_I2C    5
+#define NXP_S32G_NUM_I2C 5
+#define NXP_S32G_NUM_EDMA 2
+#define NXP_S32G_NUM_EDMA_CHANNELS 32
+#define NXP_S32G_EDMA_CHANNEL_MMIO_SIZE 0x1000
 
 
 #define NXP_S32G_LLCE_AS_BASE 0x43000000
@@ -132,6 +136,24 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_SRAMC_1_BASE_ADDR 0x401A0000
 #define NXP_S32G_STBY_SRAMC_CFG_BASE_ADDR 0x44028000
 
+#define NXP_S32G_EDMA0_MG_BASE_ADDR 0x40144000
+#define NXP_S32G_EDMA0_TCD_BASE_ADDR 0x40148000
+
+#define NXP_S32G_EDMA1_MG_BASE_ADDR 0x40244000
+#define NXP_S32G_EDMA1_TCD_BASE_ADDR 0x40248000
+
+#define NXP_S32G_EDMA0_CH_LOWER_IRQ 8
+#define NXP_S32G_EDMA0_CH_UPPER_IRQ 9
+#define NXP_S32G_EDMA0_CH_ERR_IRQ  10
+#define NXP_S32G_EDMA1_CH_LOWER_IRQ 11
+#define NXP_S32G_EDMA1_CH_UPPER_IRQ 12
+#define NXP_S32G_EDMA1_CH_ERR_IRQ  13
+
+typedef struct NxpEDMA {
+    NXPEDMAState             mg;
+    NXPEDMATCDState          tcd;
+} NxpEDMA;
+
 struct NxpS32GState {
     /*< private >*/
     DeviceState parent_obj;
@@ -165,6 +187,7 @@ struct NxpS32GState {
     S32SRAMCState            sramc;
     S32SRAMCState            sramc_1;
     S32SRAMCState            stdb_sram_cfg;
+    NxpEDMA                  edma[NXP_S32G_NUM_EDMA];
 };
 
 #endif /* NXP_S32G_H */
