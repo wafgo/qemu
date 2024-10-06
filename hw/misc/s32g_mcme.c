@@ -39,6 +39,8 @@
 static uint32_t* region_to_pt_regs(S32MCMEState *s, mcme_region_t region)
 {
     switch (region) {
+    case MCME_REGION_CONTROL:
+        return s->ctrl_regs;
     case MCME_REGION_PARTITION0:
         return s->part0_regs;
     case MCME_REGION_PARTITION1:
