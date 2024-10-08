@@ -20,6 +20,7 @@
 #include "hw/qdev-properties.h"
 #include <stdbool.h>
 #include "exec/hwaddr.h"
+#include "qapi/error.h"
 
 #define DEBUG_S32G_MCME 0
 
@@ -139,10 +140,26 @@ static uint64_t s32_mcme_read(void *opaque, hwaddr offset, unsigned size)
     return regs[idx];
 }
 
+static void s32_mcme_start_cpu_core(S32MCMEState *s, int cpuid, uint64_t vtor)
+{
+    Object *cpuobj = OBJECT(arm_get_cpu_by_id(cpuid));
+
+    if (cpuobj) {
+        if (object_property_find(cpuobj, "init-nsvtor")) {
+            object_property_set_uint(cpuobj, "init-nsvtor", vtor, &error_abort);
+            arm_set_cpu_on_and_reset(cpuid);
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "[%s]%s CPU Core %i does not have init-nsvtor, cannot be reset!\n", TYPE_S32_MCME, __func__, cpuid);
+        }
+    } else {
+        qemu_log_mask(LOG_GUEST_ERROR, "[%s]%s CPU Core %i not found. Check tha you have not set it up in your SoC/Board file!\n", TYPE_S32_MCME, __func__, cpuid);
+    }
+}
 static void s32_mcme_handle_control_write(S32MCMEState *s, hwaddr offset, uint64_t value, unsigned size)
 {
     int bit = 0;
     int core_id = 0;
+    
     int pt_region = MCME_REGION_PARTITION0;
     switch (offset) {
     case MC_ME_CTL_KEY_OFFSET:
@@ -163,6 +180,9 @@ static void s32_mcme_handle_control_write(S32MCMEState *s, hwaddr offset, uint64
                     for (core_id = 0; core_id < MC_ME_MAX_CORE_ID; ++core_id) {
                         int core_id_offset = MCME_PART_CONF_CORE0_PUPD_INDEX + (core_id * 8);
                         if (regs[core_id_offset] & BIT(bit)) {
+                            if (pt_region == MCME_REGION_PARTITION0) {
+                                s32_mcme_start_cpu_core(s, core_id, regs[MCME_PART_CONF_CORE0_ADDR_INDEX + (core_id * 8)]);
+                            }
                             regs[core_id_offset] &= ~BIT(bit);
                             if (regs[core_id_offset - 1] & BIT(bit))
                                 regs[core_id_offset + 1] |= BIT(bit);
@@ -289,11 +309,6 @@ static void s32_mcme_realize(DeviceState *dev, Error **errp)
                           TYPE_S32_MCME, 0x1000);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->iomem);
 }
-
-/* static Property mcme_properties[] = { */
-/*     DEFINE_PROP_UINT32("num-application-cores", S32MSCMState, num_app_cores, 4), */
-/*      DEFINE_PROP_END_OF_LIST(), */
-/* }; */
 
 static void s32_mcme_class_init(ObjectClass *klass, void *data)
 {

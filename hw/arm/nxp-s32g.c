@@ -483,9 +483,11 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
     for (cpu = 0; cpu < NXP_S32G_NUM_M7_CPUS; ++cpu) {
         armv7m = DEVICE(&s->m7_cpu[cpu]);
         qdev_prop_set_uint32(armv7m, "num-irq", 240);
-        //FIXME: This is hacky, we need to get the addresses by parsing the BootImage with the s32 header
-        qdev_prop_set_uint32(armv7m, "init-nsvtor", NXP_S32G_SRAM_BASE);
-        qdev_prop_set_uint32(armv7m, "init-svtor", NXP_S32G_SRAM_BASE);
+        if (cpu == 0) {
+            //FIXME: This is hacky, we need to get the addresses by parsing the BootImage with the s32 header
+            qdev_prop_set_uint32(armv7m, "init-nsvtor", NXP_S32G_SRAM_BASE);
+            qdev_prop_set_uint32(armv7m, "init-svtor", NXP_S32G_SRAM_BASE);
+        }
     
         qdev_prop_set_uint8(armv7m, "num-prio-bits", 4);
         qdev_prop_set_string(armv7m, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m7"));
@@ -520,12 +522,9 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
             memory_region_add_subregion_overlap(&s->cpu_container[cpu], 0,
                                                 get_system_memory(), -1);
         }
-        //memory_region_add_subregion(&s->cpu_container[cpu], 0, get_system_memory())
-         /* memory_region_add_subregion_overlap(&s->cpu_container[cpu], NXP_S32G_SRAM_BASE, &s->sram, 0); */
         object_property_set_link(OBJECT(&s->m7_cpu[cpu]), "memory", OBJECT(&s->cpu_container[cpu]), &error_abort);
-        if (cpu != 0)
-            object_property_set_bool(OBJECT(&s->m7_cpu[cpu]), "start-powered-off", true,
-                                     &error_abort);
+        object_property_set_bool(OBJECT(&s->m7_cpu[cpu]), "start-powered-off", (cpu != 0),
+                                 &error_abort);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->m7_cpu[cpu]), &error_abort);
     }
 
