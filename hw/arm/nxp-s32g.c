@@ -37,8 +37,9 @@
 #include "target/arm/cpu-qom.h"
 #include "hw/sysbus.h"
 #include "exec/address-spaces.h"
+#include "exec/memory.h"
 
-#define NAME_SIZE 20
+#define NAME_SIZE 40
 
 static const int cmu_fc_instances[] = {
         0, 5, 6, 7, 8, 9, 10,
@@ -52,11 +53,22 @@ static void nxp_s32g_init(Object *obj)
 {
     NxpS32GState *s = NXP_S32G(obj);
     char name[NAME_SIZE];
+    char *cont_name;
     int i;
-    
-    object_initialize_child(obj, "m7-cpu", &s->m7_cpu, TYPE_ARMV7M);
-    s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
 
+    for (i = 0; i < NXP_S32G_NUM_M7_CPUS; ++i) {
+        object_initialize_child(obj, "m7-cpu[*]", &s->m7_cpu[i], TYPE_ARMV7M);
+        cont_name = g_strdup_printf("arm-cpu-container%d", i);
+        memory_region_init(&s->cpu_container[i], obj, cont_name, UINT64_MAX);
+        g_free(cont_name);
+        if (i > 0) {
+            cont_name = g_strdup_printf("arm-cpu-container-alias%d", i);
+            memory_region_init_alias(&s->container_alias[i - 1], obj, cont_name, get_system_memory(), 0, UINT64_MAX);
+            g_free(cont_name);
+        }
+    }
+    
+    s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
     object_initialize_child(obj, "mscm", &s->mscm, TYPE_S32_MSCM);
     object_initialize_child(obj, "mcme", &s->mod_entry, TYPE_S32_MCME);
     object_initialize_child(obj, "rdc", &s->rdc, TYPE_S32_RDC);
@@ -77,6 +89,7 @@ static void nxp_s32g_init(Object *obj)
     object_initialize_child(obj, "sramc", &s->sramc, TYPE_S32_SRAMC);
     object_initialize_child(obj, "sramc_1", &s->sramc_1, TYPE_S32_SRAMC);
     object_initialize_child(obj, "stdb_sram_cfg", &s->stdb_sram_cfg, TYPE_S32_SRAMC);
+    object_initialize_child(obj, "sema42", &s->sema, TYPE_NXP_SEMA42);
 
     for (i = 0; i < NXP_S32G_NUM_STM; ++i) {
         snprintf(name, NAME_SIZE, "stm%d", i);
@@ -87,8 +100,6 @@ static void nxp_s32g_init(Object *obj)
         snprintf(name, NAME_SIZE, "cmu.fc%d", cmu_fc_instances[i]);
         object_initialize_child(obj, name, &s->cmu_fc[i], TYPE_S32_CMU_FC);
     }
-
-    /* object_initialize_child(obj, "pcie", &s->pcie, TYPE_DESIGNWARE_PCIE_HOST); */
 
     for (i = 0; i < NXP_S32G_NUM_LINFLEXD; i++) {
         object_initialize_child(obj, "linflexd[*]", &s->linflexd[i], TYPE_LINFLEXD);
@@ -228,8 +239,15 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
     create_unimplemented_device("xrdc_0", 0x401A4000, 0x3C00);
     create_unimplemented_device("xrdc_1", 0x44004000, 0x2B00);
 
-    create_unimplemented_device("sema42", 0x40298000, 0x50);
+    /* create_unimplemented_device("sema42", 0x40298000, 0x50); */
     create_unimplemented_device("src", 0x4007c000, 0x100);
+}
+
+static void sema_realize(NxpS32GState *s, Error **errp)
+{
+    if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->sema), errp))
+        return;
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->sema), 0, NXP_S32G_SEMA42_BASE_ADDR);
 }
 
 static void dma_controller_realize(NxpS32GState *s, Error **errp)
@@ -315,7 +333,7 @@ static void i2c_realize(NxpS32GState *s, Error **errp)
 
 static void linflexd_realize(NxpS32GState *s, Error **errp)
 {
-    int i;
+    int i, cpu;
     for (i = 0; i < NXP_S32G_NUM_LINFLEXD; ++i) {
         static const struct {
             hwaddr addr;
@@ -333,7 +351,9 @@ static void linflexd_realize(NxpS32GState *s, Error **errp)
         if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->linflexd[i]), errp))
             return;
         sysbus_mmio_map(SYS_BUS_DEVICE(&s->linflexd[i]), 0, serial_sysmap[i].addr);
-        sysbus_connect_irq(SYS_BUS_DEVICE(&s->linflexd[i]), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu), serial_sysmap[i].m7_irq));
+        for (cpu = 0; cpu < NXP_S32G_NUM_M7_CPUS; ++cpu) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(&s->linflexd[i]), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), serial_sysmap[i].m7_irq));
+        }
     }
 }
 
@@ -350,7 +370,7 @@ static void cmu_realize(NxpS32GState *s, Error **errp)
 }
 static void timer_realize(NxpS32GState *s, Error **errp)
 {
-    int i;
+    int i, cpu;
     for (i = 0; i < NXP_S32G_NUM_STM; ++i) {
         static const struct {
             hwaddr addr;
@@ -370,7 +390,9 @@ static void timer_realize(NxpS32GState *s, Error **errp)
             return;
         
         sysbus_mmio_map(SYS_BUS_DEVICE(&s->stm[i]), 0, stm_table[i].addr);
-        sysbus_connect_irq(SYS_BUS_DEVICE(&s->stm[i]), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu), stm_table[i].irq));
+        for (cpu = 0; cpu < NXP_S32G_NUM_M7_CPUS; ++cpu) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(&s->stm[i]), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), stm_table[i].irq));
+        }
     }
 
 }
@@ -451,22 +473,25 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
 {
     NxpS32GState *s = NXP_S32G(dev);
     DeviceState  *armv7m;
+    int cpu;
     
     if (!clock_has_source(s->sysclk)) {
         error_setg(errp, "sysclk clock must be wired up by the board code");
         return;
     }
 
-    armv7m = DEVICE(&s->m7_cpu);
-    qdev_prop_set_uint32(armv7m, "num-irq", 240);
-    //FIXME: This is hacky, we need to get the addresses by parsing the BootImage with the s32 header
-    qdev_prop_set_uint32(armv7m, "init-nsvtor", NXP_S32G_SRAM_BASE);
-    qdev_prop_set_uint32(armv7m, "init-svtor", NXP_S32G_SRAM_BASE);
+    for (cpu = 0; cpu < NXP_S32G_NUM_M7_CPUS; ++cpu) {
+        armv7m = DEVICE(&s->m7_cpu[cpu]);
+        qdev_prop_set_uint32(armv7m, "num-irq", 240);
+        //FIXME: This is hacky, we need to get the addresses by parsing the BootImage with the s32 header
+        qdev_prop_set_uint32(armv7m, "init-nsvtor", NXP_S32G_SRAM_BASE);
+        qdev_prop_set_uint32(armv7m, "init-svtor", NXP_S32G_SRAM_BASE);
     
-    qdev_prop_set_uint8(armv7m, "num-prio-bits", 4);
-    qdev_prop_set_string(armv7m, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m7"));
-    qdev_prop_set_bit(armv7m, "enable-bitband", false);
-    qdev_connect_clock_in(armv7m, "cpuclk", s->sysclk);
+        qdev_prop_set_uint8(armv7m, "num-prio-bits", 4);
+        qdev_prop_set_string(armv7m, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m7"));
+        qdev_prop_set_bit(armv7m, "enable-bitband", false);
+        qdev_connect_clock_in(armv7m, "cpuclk", s->sysclk);
+    }
 
     if (!memory_region_init_rom(&s->qspi_nor, OBJECT(dev), "s32.qspi-nor", NXP_S32G_QSPI_AHB_SIZE, errp)) {
         return;
@@ -487,8 +512,22 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
         return;
     }
     memory_region_add_subregion(get_system_memory(), NXP_S32G_SRAM_BASE, &s->sram);
-    object_property_set_link(OBJECT(&s->m7_cpu), "memory", OBJECT(get_system_memory()), &error_abort);
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->m7_cpu), &error_abort);
+    for (cpu = 0; cpu < NXP_S32G_NUM_M7_CPUS; ++cpu) {
+        if (cpu > 0) {
+            memory_region_add_subregion_overlap(&s->cpu_container[cpu], 0,
+                                                &s->container_alias[cpu - 1], -1);
+        } else {
+            memory_region_add_subregion_overlap(&s->cpu_container[cpu], 0,
+                                                get_system_memory(), -1);
+        }
+        //memory_region_add_subregion(&s->cpu_container[cpu], 0, get_system_memory())
+         /* memory_region_add_subregion_overlap(&s->cpu_container[cpu], NXP_S32G_SRAM_BASE, &s->sram, 0); */
+        object_property_set_link(OBJECT(&s->m7_cpu[cpu]), "memory", OBJECT(&s->cpu_container[cpu]), &error_abort);
+        if (cpu != 0)
+            object_property_set_bool(OBJECT(&s->m7_cpu[cpu]), "start-powered-off", true,
+                                     &error_abort);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->m7_cpu[cpu]), &error_abort);
+    }
 
     qdev_prop_set_uint32(DEVICE(&s->mscm), "num-application-cores", NXP_S32G_NUM_A53_CPUS);
     misc_realize(s, errp);
@@ -501,6 +540,7 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
     linflexd_realize(s, errp);
     i2c_realize(s, errp);
     dma_controller_realize(s, errp);
+    sema_realize(s, errp);
     nxp_s32g_create_unimplemented(s, errp);
 }
 

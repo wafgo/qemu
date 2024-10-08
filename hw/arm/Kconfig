@@ -640,6 +640,7 @@ config HDK11
     select NXP_LINFLEXD
     select S32G_I2C
     select NXP_EDMA
+    select NXP_SEMA42
 
 config FSL_IMX7
     bool

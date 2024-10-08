@@ -114,6 +114,9 @@ config MPS2_SCC
 config S32G_MSCM
     bool
 
+config NXP_SEMA42
+    bool
+    
 config S32G_MCME
     bool
 

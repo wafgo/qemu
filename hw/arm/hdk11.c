@@ -106,6 +106,7 @@ static void hdk11_machine_init(MachineClass *mc)
     };
 
     mc->desc = "HDK1.1 (Cortex-M7 + Cortex-A53)";
+    mc->default_cpus = NXP_S32G_NUM_M7_CPUS;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-m7");
     mc->valid_cpu_types = valid_cpu_types;
     mc->default_ram_size = 2 * GiB;

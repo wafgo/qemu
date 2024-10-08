@@ -38,6 +38,7 @@
 #include "hw/misc/s32g_pll.h"
 #include "hw/misc/s32g_cmu.h"
 #include "hw/misc/s32g_sramc.h"
+#include "hw/misc/nxp_sema42.h"
 #include "hw/dma/nxp_edma.h"
 #include "hw/timer/s32_stm.h"
 #include "hw/char/nxp_linflexd.h"
@@ -142,6 +143,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_EDMA1_MG_BASE_ADDR 0x40244000
 #define NXP_S32G_EDMA1_TCD_BASE_ADDR 0x40248000
 
+#define NXP_S32G_SEMA42_BASE_ADDR 0x40298000
+
 #define NXP_S32G_EDMA0_CH_LOWER_IRQ 8
 #define NXP_S32G_EDMA0_CH_UPPER_IRQ 9
 #define NXP_S32G_EDMA0_CH_ERR_IRQ  10
@@ -159,10 +162,12 @@ struct NxpS32GState {
     DeviceState parent_obj;
 
     /*< public >*/
-    ARMv7MState              m7_cpu;
+    ARMv7MState              m7_cpu[NXP_S32G_NUM_M7_CPUS];
     ARMCPU                   a53_cpu[NXP_S32G_NUM_A53_CPUS];
     DesignwarePCIEHost       pcie;
     S32MSCMState             mscm;
+    MemoryRegion             cpu_container[NXP_S32G_NUM_M7_CPUS];
+    MemoryRegion             container_alias[NXP_S32G_NUM_M7_CPUS - 1];
     MemoryRegion             qspi_nor;
     MemoryRegion             llce_as;
     MemoryRegion             standby_ram;
@@ -188,6 +193,7 @@ struct NxpS32GState {
     S32SRAMCState            sramc_1;
     S32SRAMCState            stdb_sram_cfg;
     NxpEDMA                  edma[NXP_S32G_NUM_EDMA];
+    NXPSEMA42State           sema;
 };
 
 #endif /* NXP_S32G_H */
