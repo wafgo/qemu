@@ -252,7 +252,7 @@ static void sema_realize(NxpS32GState *s, Error **errp)
 
 static void dma_controller_realize(NxpS32GState *s, Error **errp)
 {
-    int i;
+    int i, cpu;
     int ch;
     for (i = 0; i < NXP_S32G_NUM_EDMA; ++i) {
         static const struct {
@@ -285,9 +285,11 @@ static void dma_controller_realize(NxpS32GState *s, Error **errp)
         sysbus_mmio_map(SYS_BUS_DEVICE(&s->edma[i].mg), 0, dma_sysmap[i].mg_addr);
         for (ch = 0; ch < NXP_S32G_NUM_EDMA_CHANNELS; ++ch)
             sysbus_mmio_map(SYS_BUS_DEVICE(&s->edma[i].tcd), ch, dma_sysmap[i].tcd_addr + (ch * NXP_S32G_EDMA_CHANNEL_MMIO_SIZE));
-        /* sysbus_connect_irq(SYS_BUS_DEVICE(&s->edma[i].tcd), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu), dma_sysmap[i].m7_irq_chl)); */
-        /* sysbus_connect_irq(SYS_BUS_DEVICE(&s->edma[i].tcd), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu), dma_sysmap[i].m7_irq_chu)); */
-        /* sysbus_connect_irq(SYS_BUS_DEVICE(&s->edma[i].tcd), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu), dma_sysmap[i].m7_irq_err)); */
+        for (cpu = 0; cpu < NXP_S32G_NUM_M7_CPUS; ++cpu) {
+            sysbus_connect_irq(SYS_BUS_DEVICE(&s->edma[i].tcd), 0, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), dma_sysmap[i].m7_irq_chl));
+            sysbus_connect_irq(SYS_BUS_DEVICE(&s->edma[i].tcd), 1, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), dma_sysmap[i].m7_irq_chu));
+            sysbus_connect_irq(SYS_BUS_DEVICE(&s->edma[i].tcd), 2, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), dma_sysmap[i].m7_irq_err));
+        }
     }
 }
 
@@ -407,11 +409,21 @@ static void reset_realize(NxpS32GState *s, Error **errp)
 
 static void misc_realize(NxpS32GState *s, Error **errp)
 {
+    int cpu;
+    unsigned int irq = 0;
     if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->mscm), errp)) {
         return;
     }
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->mscm), 0, NXP_S32G_MSCM_BASE_ADDR);
 
+    for (cpu = 0; cpu < NXP_S32G_NUM_M7_CPUS; ++cpu) {
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->mscm), irq++, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), 0)); // PCIe1 MSI
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->mscm), irq++, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), 1)); // Core IRQ#0
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->mscm), irq++, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), 2)); // Core IRQ#1
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->mscm), irq++, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), 3)); // Core IRQ#2
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->mscm), irq++, qdev_get_gpio_in(DEVICE(&s->m7_cpu[cpu]), 4)); // PCIe0 MSI
+    }
+    
     if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(&s->mod_entry), errp)) {
         return;
     }

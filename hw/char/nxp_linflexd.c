@@ -228,7 +228,7 @@ static void linflexd_update_state(LinFlexDState *s, hwaddr offset,
         if ((s->lincr1 & BIT(1)) && !(s->lincr1 & BIT(0))) {
             s->mode = LINFLEXD_SLEEP;
             s->linsr &= ~(0xf << 12);
-            DPRINTF("Entering SLEEP MODE\n");
+            printf("Entering SLEEP MODE\n");
         }
         else if (!(s->lincr1 & BIT(1)) && !(s->lincr1 & BIT(0))) {
             s->mode = LINFLEXD_NORMAL;
@@ -241,7 +241,12 @@ static void linflexd_update_state(LinFlexDState *s, hwaddr offset,
         if ((s->lincr1 & BIT(1)) && !(s->lincr1 & BIT(0))) {
             s->mode = LINFLEXD_SLEEP;
             s->linsr &= ~(0xf << 12);
-            DPRINTF("Entering SLEEP MODE\n");
+            printf("Entering SLEEP MODE\n");
+        } else if ((s->lincr1 & BIT(0)) && (s->lincr1 & BIT(7))) {
+            s->mode = LINFLEXD_INIT;
+            s->linsr &= ~(0xf << 12);
+            s->linsr |= (1 << 12);
+            DPRINTF("Entering INIT MODE\n");
         }
 
         break;

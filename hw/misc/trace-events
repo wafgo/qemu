@@ -362,3 +362,12 @@ aspeed_sli_read(uint64_t offset, unsigned int size, uint32_t data) "To 0x%" PRIx
 aspeed_sliio_write(uint64_t offset, unsigned int size, uint32_t data) "To 0x%" PRIx64 " of size %u: 0x%" PRIx32
 aspeed_sliio_read(uint64_t offset, unsigned int size, uint32_t data) "To 0x%" PRIx64 " of size %u: 0x%" PRIx32
 
+# s32g_mscm.c
+s32_mscm_read(uint64_t offset, const char *region, uint64_t value) "offset 0x%" PRIx64 " at region %s, value: 0x%" PRIx64
+s32_mscm_write(uint64_t offset, const char *region, uint64_t value) "offset 0x%" PRIx64 " at region %s, value: 0x%" PRIx64
+s32_mscm_irq_clear(uint32_t core, uint64_t value) "clear IRQ for core %u, value: 0x%" PRIx64
+s32_mscm_irq_raise(uint32_t core, uint32_t irq)   "raising core %u IRQ %u"
+s32_mscm_irq_access(uint32_t core, uint32_t irpc_offset, uint32_t irq)   "access core: %u, irpc_offset: %u, irq_no: %u"
+
+
+

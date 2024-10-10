@@ -241,7 +241,7 @@ static const VMStateDescription vmstate_s32stm = {
 
 static Property s32_stm_properties[] = {
     DEFINE_PROP_UINT64("clock-frequency", struct S32STMTimerState,
-                       freq_hz, 1000000000),
+                       freq_hz, 100000000),
     DEFINE_PROP_END_OF_LIST(),
 };
 

@@ -449,6 +449,10 @@ static void edma_tcd_realize(DeviceState *dev, Error **errp)
     s->dma_mr = MEMORY_REGION(obj);
     address_space_init(&s->dma_as, s->dma_mr, TYPE_NXP_EDMA_TCD "-memory");
 
+    sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->irql);
+    sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->irqu);
+    sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->irq_err);
+    
     for (i = 0; i < s->number_channels; ++i) {
         s->regs[i].chan_no = i;
         s->regs[i].s = s;

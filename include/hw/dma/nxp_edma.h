@@ -65,6 +65,9 @@ struct NXPEDMATCDState {
     uint32_t number_channels;
     uint32_t sbr_reset;
     EdmaTCGRegisterInfo regs[NXP_EDMA_MAX_NCHANS];
+    qemu_irq irql;
+    qemu_irq irqu;
+    qemu_irq irq_err;
 };
 
 #endif

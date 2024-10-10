@@ -172,6 +172,12 @@ typedef enum {
 #define TYPE_S32_MSCM "s32.mscm"
 OBJECT_DECLARE_SIMPLE_TYPE(S32MSCMState, S32_MSCM)
 
+#define MSCM_NUM_CORES     3
+#define MSCM_NUM_IRQ_PER_CORE 5
+
+struct MSCM_IRQs {
+    qemu_irq irq[MSCM_NUM_IRQ_PER_CORE];
+};
 
 struct S32MSCMState {
     /* <private> */
@@ -181,7 +187,10 @@ struct S32MSCMState {
     MemoryRegion iomem;
 
     uint32_t num_app_cores;
+    uint32_t num_rt_cores;
+    uint32_t irq_per_core;
     uint32_t regs[MSCM_REG_MAX];
+    struct MSCM_IRQs msi[MSCM_NUM_CORES];
 };
 
 #endif /* S32G_MSCM_H */

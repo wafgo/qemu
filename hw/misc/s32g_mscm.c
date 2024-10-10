@@ -9,6 +9,7 @@
  */
 
 
+
 #include "qemu/osdep.h"
 #include "hw/misc/s32g_mscm.h"
 #include "migration/vmstate.h"
@@ -19,10 +20,8 @@
 #include "target/arm/arm-powerctl.h"
 #include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
-#if defined(__linux__)
-#include <elf.h>
-#endif
-
+#include "hw/irq.h"
+#include "trace.h"
 
 #define DEBUG_S32G_MSCM 0
 
@@ -30,12 +29,12 @@
 #define DEBUG_S32G_MSCM 0
 #endif
 
-#define DPRINTF(fmt, args...) \
-    do { \
-        if (DEBUG_S32G_MSCM) { \
-            fprintf(stderr, "[%s]%s: " fmt , TYPE_S32_MSCM, \
-                                             __func__, ##args); \
-        } \
+#define DPRINTF(fmt, args...)                                   \
+    do {                                                        \
+        if (DEBUG_S32G_MSCM) {                                  \
+            fprintf(stderr, "[%s]%s: " fmt , TYPE_S32_MSCM,     \
+                    __func__, ##args);                          \
+        }                                                       \
     } while (0)
 
 #define mscm_offset2idx(_off_) (_off_ / 4)
@@ -54,8 +53,6 @@ static mscm_region_t s32_mscm_region_type_from_offset(hwaddr offset)
     default:
         return MSCM_REGION_NO;
     }
-
-    
 }
 
 static const char *s32_mscm_region_name(mscm_region_t region)
@@ -104,9 +101,7 @@ static uint64_t s32_mscm_read(void *opaque, hwaddr offset, unsigned size)
         value = s->regs[mscm_offset2idx(offset)];
         break;
     }
-    
-    DPRINTF("offset: 0x%" HWADDR_PRIx " region: %s => 0x%" PRIx32 "\n", offset, s32_mscm_region_name(s32_mscm_region_type_from_offset(offset)), value);
-
+    trace_s32_mscm_read(offset, s32_mscm_region_name(s32_mscm_region_type_from_offset(offset)), value);
     return value;
 }
 
@@ -116,6 +111,7 @@ static void s32_mscm_write(void *opaque, hwaddr offset, uint64_t value,
 {
     S32MSCMState *s = (S32MSCMState *)opaque;
     unsigned long current_value = value;
+    int core_id, irpc_offset, irq_no, bit;
     
     if (offset > MSCM_IRSPRC_END_OFFSET) {
         qemu_log_mask(LOG_GUEST_ERROR, "[%s]%s: Bad register at offset 0x%"
@@ -123,9 +119,35 @@ static void s32_mscm_write(void *opaque, hwaddr offset, uint64_t value,
         return;
     }
 
-    DPRINTF("offset: 0x%" HWADDR_PRIx " region: %s <= 0x%" PRIx32 "\n", offset, s32_mscm_region_name(s32_mscm_region_type_from_offset(offset)),
-            (uint32_t)current_value);
-
+    trace_s32_mscm_write(offset, s32_mscm_region_name(s32_mscm_region_type_from_offset(offset)), value);
+    if (s32_mscm_region_type_from_offset(offset) == MSCM_REGION_IRCP) {
+        core_id = (((offset - 0x200) & 0xff) / 0x20);
+        irpc_offset = (offset - (0x200 + (core_id * 0x20)));
+        irq_no = irpc_offset / 0x8;
+        trace_s32_mscm_irq_access(core_id, irpc_offset, irq_no);
+        if (irpc_offset == 0x0  ||
+            irpc_offset == 0x8  ||
+            irpc_offset == 0x10 ||
+            irpc_offset == 0x18) {
+            /* Status Register */
+            /* We only consider the RT Cores for now */
+            for (bit = s->num_app_cores; bit < s->num_app_cores + s->num_rt_cores; ++bit) {
+                if (value & BIT(bit)) {
+                    trace_s32_mscm_irq_clear(bit, value);
+                    qemu_set_irq(s->msi[bit - s->num_app_cores].irq[irq_no + 1], 0);
+                    value &= ~BIT(bit);
+                }
+            }
+        } else {
+            /* IRQ Generation Register */
+            if (value & BIT(0)) {
+                DPRINTF("CORE%i RAISE IRQ %lu\n", core_id, value);
+                trace_s32_mscm_irq_raise(core_id, irq_no);
+                qemu_set_irq(s->msi[core_id - s->num_app_cores].irq[irq_no + 1], 1);
+                value &= ~BIT(0);
+            }
+        }
+    }
     s->regs[mscm_offset2idx(offset)] = current_value;
 }
 
@@ -134,12 +156,6 @@ static const struct MemoryRegionOps s32_mscm_ops = {
     .write = s32_mscm_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
     .valid = {
-        /*
-         * Our device would not work correctly if the guest was doing
-         * unaligned access. This might not be a limitation on the real
-         * device but in practice there is no reason for a guest to access
-         * this device unaligned.
-         */
         .min_access_size = 4,
         .max_access_size = 4,
         .unaligned = false,
@@ -155,7 +171,14 @@ static void s32_mscm_reset(DeviceState *dev)
 static void s32_mscm_realize(DeviceState *dev, Error **errp)
 {
     S32MSCMState *s = S32_MSCM(dev);
-
+    int core, irq;
+    int num_cores = s->num_rt_cores;
+    for (core = 0; core < num_cores; ++core) {
+        for (irq = 0; irq < s->irq_per_core; ++irq) {
+            sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->msi[core].irq[irq]);
+        }
+    }
+    
     memory_region_init_io(&s->iomem, OBJECT(dev), &s32_mscm_ops, s,
                           TYPE_S32_MSCM, 0x1000);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->iomem);
@@ -163,7 +186,9 @@ static void s32_mscm_realize(DeviceState *dev, Error **errp)
 
 static Property mscm_properties[] = {
     DEFINE_PROP_UINT32("num-application-cores", S32MSCMState, num_app_cores, 4),
-     DEFINE_PROP_END_OF_LIST(),
+    DEFINE_PROP_UINT32("num-rt-cores", S32MSCMState, num_rt_cores, 3),
+    DEFINE_PROP_UINT32("irq-per-core", S32MSCMState, irq_per_core, 5),
+    DEFINE_PROP_END_OF_LIST(),
 };
 
 static void s32_mscm_class_init(ObjectClass *klass, void *data)
