@@ -114,3 +114,15 @@ hpet_ram_write_invalid_tn_cmp(void) "invalid HPET_TN_CMP + 4 write"
 hpet_ram_write_invalid(void) "invalid hpet_ram_writel"
 hpet_ram_write_counter_write_while_enabled(void) "Writing counter while HPET enabled!"
 hpet_ram_write_counter_written(uint8_t reg_off, uint64_t value, uint64_t counter) "HPET counter + %" PRIu8 "written. crt = 0x%" PRIx64 " -> 0x%" PRIx64
+
+# s32_stm.c
+s32_stm_interrupt_handler(const char* dev_name, uint32_t count) "%s: irq count %u"
+s32_stm_reset(const char* dev_name) "%s: reset of timer"
+s32_stm_disable_timer(const char* dev_name) "%s: disable timer"
+s32_stm_register_read(const char* dev_name, uint64_t offset, uint32_t size, uint64_t pc) "%s: at offset 0x%" PRIx64 " size: 0x%" PRIx32 " @ pc: 0x%" PRIx64
+s32_stm_register_write(const char* dev_name, uint32_t value, uint64_t offset, uint32_t size) "%s: writing 0x%" PRIx32  " at offset 0x%" PRIx64 " size: 0x%" PRIx32
+s32_stm_update(const char* dev_name, uint32_t channel, int64_t requested_ticks, int64_t now, int64_t next_alarm_ns) "%s: ch %u: next_alarm_ticks: 0x%" PRIx64 " now: 0x%" PRIx64 " next_alarm_ms: 0x%" PRIx64
+s32_stm_timer_update(const char* dev_name, int64_t h1, int64_t h2, int64_t h3, int64_t h4, int64_t min) "%s: H1: 0x%" PRIx64 " H2: 0x%" PRIx64 " H3: 0x%" PRIx64 " H4: 0x%" PRIx64 " MIN: 0x%" PRIx64 
+
+
+

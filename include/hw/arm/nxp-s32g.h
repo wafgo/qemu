@@ -43,6 +43,7 @@
 #include "hw/timer/s32_stm.h"
 #include "hw/char/nxp_linflexd.h"
 #include "hw/i2c/s32g_i2c.h"
+#include "hw/core/split-irq.h"
 
 #define TYPE_NXP_S32G "nxp-s32g"
 OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
@@ -194,6 +195,7 @@ struct NxpS32GState {
     S32SRAMCState            stdb_sram_cfg;
     NxpEDMA                  edma[NXP_S32G_NUM_EDMA];
     NXPSEMA42State           sema;
+    SplitIRQ                 stm_irq_splitter[NXP_S32G_NUM_STM];
 };
 
 #endif /* NXP_S32G_H */

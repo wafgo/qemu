@@ -8,8 +8,6 @@
  *
  */
 
-
-
 #include "qemu/osdep.h"
 #include "hw/misc/s32g_mscm.h"
 #include "migration/vmstate.h"
@@ -22,20 +20,6 @@
 #include "hw/qdev-properties.h"
 #include "hw/irq.h"
 #include "trace.h"
-
-#define DEBUG_S32G_MSCM 0
-
-#ifndef DEBUG_S32G_MSCM
-#define DEBUG_S32G_MSCM 0
-#endif
-
-#define DPRINTF(fmt, args...)                                   \
-    do {                                                        \
-        if (DEBUG_S32G_MSCM) {                                  \
-            fprintf(stderr, "[%s]%s: " fmt , TYPE_S32_MSCM,     \
-                    __func__, ##args);                          \
-        }                                                       \
-    } while (0)
 
 #define mscm_offset2idx(_off_) (_off_ / 4)
 
@@ -132,19 +116,18 @@ static void s32_mscm_write(void *opaque, hwaddr offset, uint64_t value,
             /* Status Register */
             /* We only consider the RT Cores for now */
             for (bit = s->num_app_cores; bit < s->num_app_cores + s->num_rt_cores; ++bit) {
-                if (value & BIT(bit)) {
+                if (current_value & BIT(bit)) {
                     trace_s32_mscm_irq_clear(bit, value);
                     qemu_set_irq(s->msi[bit - s->num_app_cores].irq[irq_no + 1], 0);
-                    value &= ~BIT(bit);
+                    current_value &= ~BIT(bit);
                 }
             }
         } else {
             /* IRQ Generation Register */
-            if (value & BIT(0)) {
-                DPRINTF("CORE%i RAISE IRQ %lu\n", core_id, value);
+            if (current_value & BIT(0)) {
                 trace_s32_mscm_irq_raise(core_id, irq_no);
                 qemu_set_irq(s->msi[core_id - s->num_app_cores].irq[irq_no + 1], 1);
-                value &= ~BIT(0);
+                current_value &= ~BIT(0);
             }
         }
     }

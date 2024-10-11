@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  */
 
+
 #include "qemu/osdep.h"
 #include "hw/irq.h"
 #include "hw/qdev-properties.h"
@@ -29,6 +30,9 @@
 #include "migration/vmstate.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
+#include "qom/object.h"
+#include "trace.h"
+#include <stdint.h>
 
 #define S32_STM_ERR_DEBUG 0
 #ifndef S32_STM_ERR_DEBUG
@@ -43,31 +47,34 @@
 
 #define DB_PRINT(fmt, args...) DB_PRINT_L(1, fmt, ## args)
 
+static void s32_stm_update(S32STMTimerState *s, uint32_t prev_cr);
+
 static void s32_stm_interrupt(void *opaque)
 {
     S32STMTimerState *s = opaque;
+    int i;
+    
+    s->irq_count++;
+    trace_s32_stm_interrupt_handler(object_get_canonical_path_component(OBJECT(s)), s->irq_count);
+    for (i = 0; i < STM_NUM_CHANNELS; ++i) {
+        if (s->irq_channel & BIT(i))
+            s->irq_channel &= ~BIT(i);
 
-    DB_PRINT("Interrupt\n");
-
-    /* if (s->tim_dier & TIM_DIER_UIE && s->tim_cr1 & TIM_CR1_CEN) { */
-    /*     s->tim_sr |= 1; */
-    /*     qemu_irq_pulse(s->irq); */
-    /*     stm32f2xx_timer_set_alarm(s, s->hit_time); */
-    /* } */
-
-    /* if (s->tim_ccmr1 & (TIM_CCMR1_OC2M2 | TIM_CCMR1_OC2M1) && */
-    /*     !(s->tim_ccmr1 & TIM_CCMR1_OC2M0) && */
-    /*     s->tim_ccmr1 & TIM_CCMR1_OC2PE && */
-    /*     s->tim_ccer & TIM_CCER_CC2E) { */
-    /*     /\* PWM 2 - Mode 1 *\/ */
-    /*     DB_PRINT("PWM2 Duty Cycle: %d%%\n", */
-    /*             s->tim_ccr2 / (100 * (s->tim_psc + 1))); */
-    /* } */
+    }
+    s32_stm_update(s, s->stm_cr);
+    qemu_irq_raise(s->irq);
 }
 
 static inline int64_t s32_stm_ns_to_ticks(S32STMTimerState *s, int64_t t)
 {
-    return muldiv64(t, s->freq_hz, 1000000000ULL) / (((s->stm_cr >> 8) & 0xff) + 1);
+    uint32_t prescaler = ((s->stm_cr >> 8) & 0xff) + 1;
+    return muldiv64(t, s->freq_hz, 1000000000ULL) / prescaler;
+}
+
+static inline int64_t s32_stm_ticks_to_ns(S32STMTimerState *s, int64_t ticks)
+{
+    uint32_t prescaler = ((s->stm_cr >> 8) & 0xff) + 1;
+    return muldiv64(ticks * prescaler, 1000000000ULL, s->freq_hz) + 1000000;
 }
 
 static void s32_stm_reset(DeviceState *dev)
@@ -75,6 +82,7 @@ static void s32_stm_reset(DeviceState *dev)
     S32STMTimerState *s = S32STM_TIMER(dev);
     int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
 
+    trace_s32_stm_reset(object_get_canonical_path_component(OBJECT(s)));
     s->stm_cr = 0;
     s->stm_cnt = 0;
     s->stm_ccr0 = 0;
@@ -97,9 +105,12 @@ static uint64_t s32_stm_read(void *opaque, hwaddr offset,
                            unsigned size)
 {
     S32STMTimerState *s = opaque;
+    uint64_t pc = current_cpu->cc->get_pc(current_cpu);
     int64_t now;
-    DB_PRINT("Read 0x%"HWADDR_PRIx"\n", offset);
-    
+
+    if (offset != STM_CNT)
+        trace_s32_stm_register_read(object_get_canonical_path_component(OBJECT(s)), offset, size, pc);
+        
     switch (offset) {
     case STM_CR:
         return s->stm_cr;
@@ -139,6 +150,53 @@ static uint64_t s32_stm_read(void *opaque, hwaddr offset,
     return 0;
 }
 
+static void s32_stm_update(S32STMTimerState *s, uint32_t prev_cr)
+{
+    int64_t next_alarm[STM_NUM_CHANNELS] = {INT64_MAX, INT64_MAX, INT64_MAX, INT64_MAX};
+    int64_t requested_ticks = -1;
+    int i;
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    
+    if ((prev_cr & BIT(0)) && !(s->stm_cr & BIT(0))) {
+        trace_s32_stm_disable_timer(object_get_canonical_path_component(OBJECT(s)));
+        return;
+    }
+    /* Only do something if timer is enabled */
+    if (s->stm_cr & BIT(0)) {
+        if (s->stm_ccr0 & BIT(0)) {
+            requested_ticks = (s->stm_cmp0 > s->stm_cnt) ? (s->stm_cmp0 - s->stm_cnt) : (0xffffffff - s->stm_cnt + s->stm_cmp0);
+            next_alarm[0] = now + s32_stm_ticks_to_ns(s, requested_ticks);
+            trace_s32_stm_update(object_get_canonical_path_component(OBJECT(s)), 0, requested_ticks, now, next_alarm[0]);
+        }
+        if (s->stm_ccr1 & BIT(0)) {
+            requested_ticks = (s->stm_cmp1 > s->stm_cnt) ? (s->stm_cmp1 - s->stm_cnt) : (0xffffffff - s->stm_cnt + s->stm_cmp1);
+            next_alarm[1] = now + s32_stm_ticks_to_ns(s, requested_ticks);
+            trace_s32_stm_update(object_get_canonical_path_component(OBJECT(s)), 1, requested_ticks, now, next_alarm[1]);
+        }
+        if (s->stm_ccr2 & BIT(0)) {
+            requested_ticks = (s->stm_cmp2 > s->stm_cnt) ? (s->stm_cmp2 - s->stm_cnt) : (0xffffffff - s->stm_cnt + s->stm_cmp2);
+            next_alarm[2] = now + s32_stm_ticks_to_ns(s, requested_ticks);
+            trace_s32_stm_update(object_get_canonical_path_component(OBJECT(s)), 2, requested_ticks, now, next_alarm[2]);
+        }
+        if (s->stm_ccr3 & BIT(0)) {
+            requested_ticks = (s->stm_cmp3 > s->stm_cnt) ? (s->stm_cmp3 - s->stm_cnt) : (0xffffffff - s->stm_cnt + s->stm_cmp3);
+            next_alarm[3] = now + s32_stm_ticks_to_ns(s, requested_ticks);
+            trace_s32_stm_update(object_get_canonical_path_component(OBJECT(s)),3, requested_ticks, now, next_alarm[3]);
+        }
+        
+        if (requested_ticks >= 0) {
+            s->hit_time = MIN(next_alarm[3], MIN(next_alarm[2], MIN(next_alarm[0], next_alarm[1])));
+            for (i = 0; i < STM_NUM_CHANNELS; ++i) {
+                if (s->hit_time == next_alarm[i])
+                    s->irq_channel |= BIT(i);
+            }
+
+            trace_s32_stm_timer_update(object_get_canonical_path_component(OBJECT(s)), next_alarm[0], next_alarm[1], next_alarm[2], next_alarm[3], s->hit_time);
+            timer_mod(s->timer, s->hit_time);
+        }
+    }
+}
+
 static void s32_stm_write(void *opaque, hwaddr offset,
                         uint64_t val64, unsigned size)
 {
@@ -146,56 +204,52 @@ static void s32_stm_write(void *opaque, hwaddr offset,
     uint32_t value = val64;
     int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
     uint32_t timer_val = 0;
+    uint32_t prev_cr = s->stm_cr;
 
-    DB_PRINT("Write 0x%x, 0x%"HWADDR_PRIx"\n", value, offset);
-
+    trace_s32_stm_register_write(object_get_canonical_path_component(OBJECT(s)), value, offset, size);
+    
     switch (offset) {
     case STM_CR:
         s->stm_cr = value;
-        return;
+        break;
     case STM_CNT:
         s->stm_cnt = value;
-        return;
+        break;
     case STM_CCR0:
         s->stm_ccr0 = value;
-        return;
+        break;
     case STM_CIR0:
-        s->stm_cir0 = value;
-        return;
+    case STM_CIR1:
+    case STM_CIR2:
+    case STM_CIR3:
+        if (value & BIT(0))
+            qemu_irq_lower(s->irq);
+        break;
     case STM_CMP0:
         /* This is set by hardware and cleared by software */
         s->stm_cmp0 = value;
-        return;
+        break;
     case STM_CCR1:
         s->stm_ccr1 = value;
-        return;
-    case STM_CIR1:
-        s->stm_cir1 = value;
-        return;
+        break;
     case STM_CMP1:
         /* This is set by hardware and cleared by software */
         s->stm_cmp1 = value;
-        return;
+        break;
     case STM_CCR2:
         s->stm_ccr2 = value;
-        return;
-    case STM_CIR2:
-        s->stm_cir2 = value;
-        return;
+        break;
     case STM_CMP2:
         /* This is set by hardware and cleared by software */
         s->stm_cmp2 = value;
-        return;
+        break;
     case STM_CCR3:
         s->stm_ccr3 = value;
-        return;
-    case STM_CIR3:
-        s->stm_cir3 = value;
-        return;
+        break;
     case STM_CMP3:
         /* This is set by hardware and cleared by software */
         s->stm_cmp3 = value;
-        return;
+        break;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
                       "%s: Bad offset 0x%"HWADDR_PRIx"\n", __func__, offset);
@@ -206,6 +260,7 @@ static void s32_stm_write(void *opaque, hwaddr offset,
      * requires a refresh of both tick_offset and the alarm.
      */
     s->tick_offset = s32_stm_ns_to_ticks(s, now) - timer_val;
+    s32_stm_update(s, prev_cr);
     /* s32_stm_set_alarm(s, now); */
 }
 

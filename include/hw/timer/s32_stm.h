@@ -28,6 +28,7 @@
 #include "hw/sysbus.h"
 #include "qemu/timer.h"
 #include "qom/object.h"
+#include "hw/irq.h"
 
 #define STM_CR       0x00
 #define STM_CNT      0x04
@@ -48,6 +49,7 @@
 #define STM_CIR3     0x44
 #define STM_CMP3     0x48
 
+#define STM_NUM_CHANNELS 4
 #define TYPE_S32STM_TIMER "s32.stm"
 OBJECT_DECLARE_SIMPLE_TYPE(S32STMTimerState, S32STM_TIMER)
 
@@ -59,7 +61,9 @@ struct S32STMTimerState {
     MemoryRegion iomem;
     QEMUTimer *timer;
     qemu_irq irq;
+    int irq_channel;
 
+    uint32_t irq_count;
     int64_t tick_offset;
     uint64_t hit_time;
     uint64_t freq_hz;
