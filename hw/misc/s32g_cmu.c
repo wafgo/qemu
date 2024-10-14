@@ -18,7 +18,6 @@
 #include "target/arm/arm-powerctl.h"
 #include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
-#include <elf.h>
 #include <stdbool.h>
 #include "exec/hwaddr.h"
 
