@@ -107,6 +107,10 @@ static void nxp_s32g_init(Object *obj)
         object_initialize_child(obj, "linflexd[*]", &s->linflexd[i], TYPE_LINFLEXD);
     }
 
+    for (i = 0; i < NXP_S32G_NUM_FLEXCAN; i++) {
+        object_initialize_child(obj, "flexcan[*]", &s->can[i], TYPE_FLEXCAN);
+    }
+
     for (i = 0; i < NXP_S32G_NUM_I2C; i++) {
         object_initialize_child(obj, "i2c[*]", &s->i2c[i], TYPE_S32_I2C);
     }
@@ -143,10 +147,10 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
 
     create_unimplemented_device("gmac", 0x4033C000, 0x5000);
 
-    create_unimplemented_device("flexcan0", 0x401B4000, 0x4000);
-    create_unimplemented_device("flexcan1", 0x401BE000, 0x4000);
-    create_unimplemented_device("flexcan2", 0x402A8000, 0x4000);
-    create_unimplemented_device("flexcan3", 0x402B2000, 0x4000);
+    /* create_unimplemented_device("flexcan0", 0x401B4000, 0x4000); */
+    /* create_unimplemented_device("flexcan1", 0x401BE000, 0x4000); */
+    /* create_unimplemented_device("flexcan2", 0x402A8000, 0x4000); */
+    /* create_unimplemented_device("flexcan3", 0x402B2000, 0x4000); */
 
     create_unimplemented_device("serdes_0_gpr", 0x407C5000, 0x4000);
     create_unimplemented_device("serdes_1_gpr", 0x407CC000, 0x4000);
@@ -225,6 +229,42 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
     create_unimplemented_device("xrdc_1", 0x44004000, 0x2B00);
 
     create_unimplemented_device("src", 0x4007c000, 0x100);
+}
+
+static void canfd_realize(NxpS32GState *s, Error **errp)
+{
+    int i, irq_bus_off, irq_err, irq_msg_l, irq_msg_u;
+    hwaddr addr;
+    FlexCanState *can;
+    
+    for (i = 0; i < NXP_S32G_NUM_FLEXCAN; ++i) {
+        const struct {
+            hwaddr addr;
+            unsigned int irq_bus_off;
+            unsigned int irq_err;
+            unsigned int irq_msg_lower;
+            unsigned int irq_msg_upper;
+        } can_sysmap[] = {
+            {NXP_S32G_FLEXCAN0_BASE_ADDR, NXP_S32G_FLEXCAN0_M7_IRQ_BUS_OFF, NXP_S32G_FLEXCAN0_M7_IRQ_ERR, NXP_S32G_FLEXCAN0_M7_IRQ_MSG_LOWER, NXP_S32G_FLEXCAN0_M7_IRQ_MSG_UPPER},
+            {NXP_S32G_FLEXCAN1_BASE_ADDR, NXP_S32G_FLEXCAN1_M7_IRQ_BUS_OFF, NXP_S32G_FLEXCAN1_M7_IRQ_ERR, NXP_S32G_FLEXCAN1_M7_IRQ_MSG_LOWER, NXP_S32G_FLEXCAN1_M7_IRQ_MSG_UPPER},
+            {NXP_S32G_FLEXCAN2_BASE_ADDR, NXP_S32G_FLEXCAN2_M7_IRQ_BUS_OFF, NXP_S32G_FLEXCAN2_M7_IRQ_ERR, NXP_S32G_FLEXCAN2_M7_IRQ_MSG_LOWER, NXP_S32G_FLEXCAN2_M7_IRQ_MSG_UPPER},
+            {NXP_S32G_FLEXCAN3_BASE_ADDR, NXP_S32G_FLEXCAN3_M7_IRQ_BUS_OFF, NXP_S32G_FLEXCAN3_M7_IRQ_ERR, NXP_S32G_FLEXCAN3_M7_IRQ_MSG_LOWER, NXP_S32G_FLEXCAN3_M7_IRQ_MSG_UPPER},  
+        };
+        can = &s->can[i];
+        addr = can_sysmap[i].addr;
+        irq_bus_off = can_sysmap[i].irq_bus_off;
+        irq_err = can_sysmap[i].irq_err;
+        irq_msg_l = can_sysmap[i].irq_msg_lower;
+        irq_msg_u = can_sysmap[i].irq_msg_upper;
+
+        if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(can), errp))
+            return;
+        sysbus_mmio_map(SYS_BUS_DEVICE(can), 0, addr);
+        sysbus_connect_irq(SYS_BUS_DEVICE(can), 0, s->irq_split_in[irq_bus_off]);
+        sysbus_connect_irq(SYS_BUS_DEVICE(can), 1, s->irq_split_in[irq_err]);
+        sysbus_connect_irq(SYS_BUS_DEVICE(can), 2, s->irq_split_in[irq_msg_l]);
+        sysbus_connect_irq(SYS_BUS_DEVICE(can), 3, s->irq_split_in[irq_msg_u]);
+    }
 }
 
 static void sema_realize(NxpS32GState *s, Error **errp)
@@ -383,6 +423,7 @@ static void timer_realize(NxpS32GState *s, Error **errp)
         irq = stm_table[i].irq;
         addr = stm_table[i].addr;
 
+        qdev_prop_set_uint32(DEVICE(timer), "clock-frequency", NXP_S32G_XBAR_DIV3_CLK);
         if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(timer), errp))
             return;
         
@@ -559,6 +600,7 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
     i2c_realize(s, errp);
     dma_controller_realize(s, errp);
     sema_realize(s, errp);
+    canfd_realize(s, errp);
     nxp_s32g_create_unimplemented(s, errp);
 }
 

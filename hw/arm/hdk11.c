@@ -32,9 +32,11 @@
 #include "hw/arm/armv7m.h"
 #include "exec/address-spaces.h"
 #include "hw/arm/nxp-s32g.h"
+#include "net/can_emu.h"
 #include "hw/loader.h"
 
 #define UART_DEBUG_MODULE 1
+#define HDK11_CANFD_NUM_BUSSES 2
 
 struct HDK11MachineClass {
     MachineClass parent;
@@ -44,6 +46,7 @@ struct HDK11MachineState {
     MachineState       parent;
     MemoryRegion       sram;
     Clock              *xtal;
+    CanBusState        *canbus[HDK11_CANFD_NUM_BUSSES];
 };
 
 #define TYPE_HDK11_MACHINE MACHINE_TYPE_NAME("hdk11")
@@ -56,7 +59,6 @@ OBJECT_DECLARE_TYPE(HDK11MachineState, HDK11MachineClass, HDK11_MACHINE)
     
 static void hdk11_init(MachineState *machine)
 {
-
     HDK11MachineState *hdk = HDK11_MACHINE(machine);
     NxpS32GState *s32;
     int size = 0;
@@ -85,9 +87,10 @@ static void hdk11_init(MachineState *machine)
     object_property_add_child(OBJECT(machine), "soc", OBJECT(s32));
     
     if (!qdev_realize_and_unref(DEVICE(s32), NULL, &err)) {
-        error_reportf_err(err, "Couldn't realize S32G M7 Core: ");
+        error_reportf_err(err, "Couldn't realize S32G SoC");
         exit(1);
     }
+    // FIXME: put hpe bootloader and CAR as Firmware into roms/ and load it here directly without specifying any -kernel parameter
     size = load_image_targphys("/home/uia67865/devel/git/m7-car/src/car_s32g/car_sw/output/bin/CORTEXM_S32G27X_car_sw.bin", 0x100000, 2*MiB);
     if (size > 0) {
         printf("Successfully loaded CORTEXM_S32G27X_car_sw.bin @ 0x100000, size: 0x%x\n", size);
@@ -98,8 +101,23 @@ static void hdk11_init(MachineState *machine)
                        0, 0x400000);
 }
 
+static void hdk11_machine_instance_init(Object *obj)
+{
+    HDK11MachineState *s = HDK11_MACHINE(obj);    
+    object_property_add_link(obj, "canbus0", TYPE_CAN_BUS,
+                             (Object **)&s->canbus[0],
+                             object_property_allow_set_link,
+                             0);
+
+    object_property_add_link(obj, "canbus1", TYPE_CAN_BUS,
+                             (Object **)&s->canbus[1],
+                             object_property_allow_set_link,
+                             0);
+}
+
 static void hdk11_machine_init(MachineClass *mc)
 {
+    // FIXME: Add A53 cores as soon as they are available on the s32g emulation
     static const char * const valid_cpu_types[] = {
         ARM_CPU_TYPE_NAME("cortex-m7"),
         NULL
@@ -117,4 +135,22 @@ static void hdk11_machine_init(MachineClass *mc)
     mc->default_ram_id = "hdk11.ram";
 }
 
-DEFINE_MACHINE("hdk11", hdk11_machine_init)
+static void hdk11_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+    hdk11_machine_init(mc);
+}
+
+static const TypeInfo hdk11_typeinfo = {
+    .name = MACHINE_TYPE_NAME("hdk11"),
+    .parent = TYPE_MACHINE,
+    .class_init = hdk11_class_init,
+    .instance_init = hdk11_machine_instance_init,
+};
+
+static void hdk11_register_types(void)
+{
+    type_register_static(&hdk11_typeinfo);
+}
+
+type_init(hdk11_register_types)

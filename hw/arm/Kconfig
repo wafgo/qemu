@@ -624,11 +624,9 @@ config MPS2
     select CMSDK_APB_WATCHDOG
     select ARM_SBCON_I2C
 
-config HDK11
+config NXP_S32G
     bool
     default y
-    depends on TCG && ARM
-    imply I2C_DEVICES
     select UNIMP
     select S32G_MSCM
     select S32G_MCME
@@ -641,6 +639,14 @@ config HDK11
     select S32G_I2C
     select NXP_EDMA
     select NXP_SEMA42
+    select FLEXCAN
+
+config HDK11
+    bool
+    default y
+    depends on TCG && ARM
+    imply I2C_DEVICES
+    select NXP_S32G    
 
 config FSL_IMX7
     bool

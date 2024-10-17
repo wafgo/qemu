@@ -18,6 +18,8 @@
 #define NXP_S32G_H
 
 #include "hw/arm/armv7m.h"
+#include "hw/intc/armv7m_nvic.h"
+#include "hw/qdev-core.h"
 #include "hw/sd/sdhci.h"
 #include "hw/ssi/imx_spi.h"
 #include "hw/usb/chipidea.h"
@@ -44,6 +46,7 @@
 #include "hw/char/nxp_linflexd.h"
 #include "hw/i2c/s32g_i2c.h"
 #include "hw/core/split-irq.h"
+#include "hw/net/nxp-flexcan.h"
 
 #define TYPE_NXP_S32G "nxp-s32g"
 OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
@@ -57,12 +60,16 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_NUM_STM    8
 #define NXP_S32G_NUM_CGM    4
 #define NXP_S32G_NUM_CMU_FC 27
-#define NXP_S32G_NUM_LINFLEXD  3
+#define NXP_S32G_NUM_LINFLEXD 3
+#define NXP_S32G_NUM_FLEXCAN  4
 #define NXP_S32G_NUM_I2C 5
 #define NXP_S32G_NUM_EDMA 2
 #define NXP_S32G_NUM_EDMA_CHANNELS 32
 #define NXP_S32G_EDMA_CHANNEL_MMIO_SIZE 0x1000
 
+// This is fixed to 133MHz and imposed by other system requirements, thats why we can
+// hardcode it here. STM and PIT are using this as their input clocks
+#define NXP_S32G_XBAR_DIV3_CLK (133000000)
 
 #define NXP_S32G_LLCE_AS_BASE 0x43000000
 #define NXP_S32G_LLCE_AS_SIZE (16 * MiB)
@@ -154,6 +161,30 @@ OBJECT_DECLARE_SIMPLE_TYPE(NxpS32GState, NXP_S32G)
 #define NXP_S32G_EDMA1_CH_UPPER_IRQ 12
 #define NXP_S32G_EDMA1_CH_ERR_IRQ  13
 
+#define NXP_S32G_FLEXCAN0_BASE_ADDR 0x401B4000
+#define NXP_S32G_FLEXCAN0_M7_IRQ_BUS_OFF 37
+#define NXP_S32G_FLEXCAN0_M7_IRQ_ERR 38
+#define NXP_S32G_FLEXCAN0_M7_IRQ_MSG_LOWER 39
+#define NXP_S32G_FLEXCAN0_M7_IRQ_MSG_UPPER 40
+
+#define NXP_S32G_FLEXCAN1_BASE_ADDR 0x401BE000
+#define NXP_S32G_FLEXCAN1_M7_IRQ_BUS_OFF 41
+#define NXP_S32G_FLEXCAN1_M7_IRQ_ERR 42
+#define NXP_S32G_FLEXCAN1_M7_IRQ_MSG_LOWER 43
+#define NXP_S32G_FLEXCAN1_M7_IRQ_MSG_UPPER 44
+
+#define NXP_S32G_FLEXCAN2_BASE_ADDR 0x402A8000
+#define NXP_S32G_FLEXCAN2_M7_IRQ_BUS_OFF 45
+#define NXP_S32G_FLEXCAN2_M7_IRQ_ERR 46
+#define NXP_S32G_FLEXCAN2_M7_IRQ_MSG_LOWER 47
+#define NXP_S32G_FLEXCAN2_M7_IRQ_MSG_UPPER 48
+
+#define NXP_S32G_FLEXCAN3_BASE_ADDR 0x402B2000
+#define NXP_S32G_FLEXCAN3_M7_IRQ_BUS_OFF 49
+#define NXP_S32G_FLEXCAN3_M7_IRQ_ERR 50
+#define NXP_S32G_FLEXCAN3_M7_IRQ_MSG_LOWER 51
+#define NXP_S32G_FLEXCAN3_M7_IRQ_MSG_UPPER 52
+
 typedef struct NxpEDMA {
     NXPEDMAState             mg;
     NXPEDMATCDState          tcd;
@@ -184,6 +215,7 @@ struct NxpS32GState {
     S32DFSState              core_dfs;
     S32DFSState              periph_dfs;
     S32FXOSCState            fxosc;
+    FlexCanState             can[NXP_S32G_NUM_FLEXCAN];
     S32PLLState              accel_pll;
     S32PLLState              core_pll;
     S32PLLState              periph_pll;
