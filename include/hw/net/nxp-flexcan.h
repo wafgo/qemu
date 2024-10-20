@@ -7,55 +7,7 @@
 #include "net/can_emu.h"
 #include "hw/register.h"
 
-struct flexcan_msg_cs {
-    unsigned id_ext: 18;
-    unsigned id_std: 11;
-    unsigned prio: 3;
-    unsigned timestamp: 16;
-    unsigned dlc: 4;
-    unsigned rtr: 1;
-    unsigned ide: 1;
-    unsigned srr: 1;
-    unsigned res1: 1;
-    unsigned code: 4;
-    unsigned res0: 1;
-    unsigned esi: 1;
-    unsigned brs: 1;
-    unsigned edl: 1;
-} QEMU_PACKED;
-
-typedef union flexcan_message_64 {
-    char data[72];
-    struct msg64{
-        struct flexcan_msg_cs cs;
-        char data[64];
-    } msg;
-} QEMU_PACKED flexcan_message_64_t;
-
-typedef union flexcan_message_32 {
-    char data[40];
-    struct msg32{
-        struct flexcan_msg_cs cs;
-        char data[32];
-    } msg;
-} QEMU_PACKED flexcan_message_32_t;
-
-typedef union flexcan_message_16 {
-    char data[24];
-    struct msg16{
-        struct flexcan_msg_cs cs;
-        char data[16];
-    } msg;
-} QEMU_PACKED flexcan_message_16_t;
-
-typedef union flexcan_message_8 {
-    char data[16];
-    struct msg8{
-        struct flexcan_msg_cs cs;
-        char data[8];
-    } msg;
-} QEMU_PACKED flexcan_message_8_t;
-
+#define FLEXCAN_NUM_RAM_BANKS 8
 #define FLEXCAN_RAM_BLOCK_ONE_SIZE 2048
 #define FLEXCAN_FD_MB_NUM 28
 #define FLEXCAN_FIFO_DEPTH 128
@@ -87,8 +39,7 @@ struct FlexCanState {
     bool fd_en;
     bool rx_fifo_en;
     bool enh_rx_fifo_en;
-    char can_msg_area[FLEXCAN_RAM_BLOCK_ONE_SIZE];
-    flexcan_message_64_t canfd_msg_area[FLEXCAN_FD_MB_NUM];
+    char can_msg_area[2 * FLEXCAN_RAM_BLOCK_ONE_SIZE];
     uint64_t ext_clk_hz;
     qemu_irq irq_bus_off;
     qemu_irq irq_err;

@@ -65,6 +65,7 @@ static void nxp_s32g_init(Object *obj)
             g_free(cont_name);
         }
     }
+
     
     s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
     object_initialize_child(obj, "mscm", &s->mscm, TYPE_S32_MSCM);
@@ -146,11 +147,6 @@ static void nxp_s32g_create_unimplemented(NxpS32GState *s, Error **errp)
     create_unimplemented_device("rtc", 0x40060000, 0x4000);
 
     create_unimplemented_device("gmac", 0x4033C000, 0x5000);
-
-    /* create_unimplemented_device("flexcan0", 0x401B4000, 0x4000); */
-    /* create_unimplemented_device("flexcan1", 0x401BE000, 0x4000); */
-    /* create_unimplemented_device("flexcan2", 0x402A8000, 0x4000); */
-    /* create_unimplemented_device("flexcan3", 0x402B2000, 0x4000); */
 
     create_unimplemented_device("serdes_0_gpr", 0x407C5000, 0x4000);
     create_unimplemented_device("serdes_1_gpr", 0x407CC000, 0x4000);
@@ -236,6 +232,7 @@ static void canfd_realize(NxpS32GState *s, Error **errp)
     int i, irq_bus_off, irq_err, irq_msg_l, irq_msg_u;
     hwaddr addr;
     FlexCanState *can;
+    CanBusState *can_bus;
     
     for (i = 0; i < NXP_S32G_NUM_FLEXCAN; ++i) {
         const struct {
@@ -251,11 +248,16 @@ static void canfd_realize(NxpS32GState *s, Error **errp)
             {NXP_S32G_FLEXCAN3_BASE_ADDR, NXP_S32G_FLEXCAN3_M7_IRQ_BUS_OFF, NXP_S32G_FLEXCAN3_M7_IRQ_ERR, NXP_S32G_FLEXCAN3_M7_IRQ_MSG_LOWER, NXP_S32G_FLEXCAN3_M7_IRQ_MSG_UPPER},  
         };
         can = &s->can[i];
+        can_bus = s->canbus[i];
         addr = can_sysmap[i].addr;
         irq_bus_off = can_sysmap[i].irq_bus_off;
         irq_err = can_sysmap[i].irq_err;
         irq_msg_l = can_sysmap[i].irq_msg_lower;
         irq_msg_u = can_sysmap[i].irq_msg_upper;
+
+        object_property_set_link(OBJECT(can), "canfdbus",
+                                 OBJECT(can_bus),
+                                 &error_abort);
 
         if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(can), errp))
             return;
@@ -607,6 +609,14 @@ static void nxp_s32g_realize(DeviceState *dev, Error **errp)
 static Property nxp_s32g_properties[] = {
     DEFINE_PROP_UINT32("serdes-phy-num", NxpS32GState, phy_num, 0),
     DEFINE_PROP_UINT32("debug-uart", NxpS32GState, debug_uart, 0),
+    DEFINE_PROP_LINK("canbus0", NxpS32GState, canbus[0],
+                      TYPE_CAN_BUS, CanBusState *),
+    DEFINE_PROP_LINK("canbus1", NxpS32GState, canbus[1],
+                      TYPE_CAN_BUS, CanBusState *),
+    DEFINE_PROP_LINK("canbus2", NxpS32GState, canbus[2],
+                      TYPE_CAN_BUS, CanBusState *),
+    DEFINE_PROP_LINK("canbus3", NxpS32GState, canbus[3],
+                      TYPE_CAN_BUS, CanBusState *),
     DEFINE_PROP_END_OF_LIST(),
 };
 

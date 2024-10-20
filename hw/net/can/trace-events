@@ -16,7 +16,7 @@ xlnx_canfd_tx_data(char *path, uint32_t id, uint8_t dlc, uint8_t flgas) "%s: Fra
 xlnx_canfd_reset(char *path, uint32_t val) "%s: Resetting controller with value = 0x%08x"
 
 # nxp-flexcan.c
-flexcan_can_write_register(char *path, uint64_t offset, uint32_t size, uint64_t value) "%s: offset: 0x%" PRIx64 " size: 0x%x value: 0x%" PRIx64
+flexcan_can_write_register(char *path, uint64_t offset, uint32_t size, uint64_t value, uint64_t pc) "%s: offset: 0x%" PRIx64 " size: 0x%x value: 0x%" PRIx64 " @0x%" PRIx64
 flexcan_can_read_register(char *path, uint64_t offset, uint32_t size, uint64_t value, bool freeze, bool lp, bool fd, bool rx_fifo, bool erx_fifo, uint64_t pc) "%s: offset: 0x%" PRIx64 " size: 0x%x value: 0x%" PRIx64 " freeze_mode: %i, low_power_mode: %i, FD: %i, RX_FIFO: %i, ERX_FIFO: %i @ 0x%" PRIx64
 flexcan_can_message_buffer_write(char *path, uint64_t offset, uint32_t size, uint64_t value, uint64_t pc) "%s: offset: 0x%" PRIx64 " size: 0x%x value: 0x%" PRIx64 " @ 0x%" PRIx64
 flexcan_canfd_message_buffer_write(char *path, uint64_t offset, uint32_t size, uint64_t value, uint64_t pc) "%s: offset: 0x%" PRIx64 " size: 0x%x value: 0x%" PRIx64 " @ 0x%" PRIx64
@@ -24,13 +24,10 @@ flexcan_enter_freeze_mode(char *path) "%s"
 flexcan_enter_low_power_mode(char *path) "%s"
 flexcan_exit_freeze_mode(char *path) "%s"
 flexcan_exit_low_power_mode(char *path, int num_mb) "%s: number of MBs: %i"
-flexcan_fd_message_box_code_inactive(char *path, int ram_block, int mb_no, int brs, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, brs: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
-flexcan_fd_message_box_code_rx_empty(char *path, int ram_block, int mb_no, int brs, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, brs: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
-flexcan_fd_message_box_code_rx_ranswer(char *path, int ram_block, int mb_no, int brs, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, brs: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
-flexcan_fd_message_box_code_data_frame(char *path, int ram_block, int mb_no, int brs, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, brs: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
-flexcan_message_box_code_inactive(char *path, int ram_block, int mb_no, int brs, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, brs: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
-flexcan_message_box_code_rx_empty(char *path, int ram_block, int mb_no, int brs, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, brs: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
-flexcan_message_box_code_rx_ranswer(char *path, int ram_block, int mb_no, int brs, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, brs: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
-flexcan_message_box_code_data_frame(char *path, int ram_block, int mb_no, int brs, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, brs: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
+flexcan_message_box_code_inactive(char *path, int ram_block, int mb_no, int edl, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, edl: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
+flexcan_message_box_code_rx_empty(char *path, int ram_block, int mb_no, int edl, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, edl: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
+flexcan_message_box_code_rx_ranswer(char *path, int ram_block, int mb_no, int edl, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, edl: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
+flexcan_message_box_code_data_frame(char *path, int ram_block, int mb_no, int edl, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, edl: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
+flexcan_can_bus_connected(char *path, const char *bus) "%s: connected to %s"
 
 

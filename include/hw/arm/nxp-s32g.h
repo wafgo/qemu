@@ -228,6 +228,7 @@ struct NxpS32GState {
     S32SRAMCState            stdb_sram_cfg;
     NxpEDMA                  edma[NXP_S32G_NUM_EDMA];
     NXPSEMA42State           sema;
+    CanBusState              *canbus[NXP_S32G_NUM_FLEXCAN];
     // We need to split all Device IRQs among the available CPUs
     SplitIRQ                 irq_splitter[NXP_S32G_NUM_M7_IRQ];
     qemu_irq                 irq_split_in[NXP_S32G_NUM_M7_IRQ];

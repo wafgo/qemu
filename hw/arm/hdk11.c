@@ -36,7 +36,7 @@
 #include "hw/loader.h"
 
 #define UART_DEBUG_MODULE 1
-#define HDK11_CANFD_NUM_BUSSES 2
+#define HDK11_CANFD_NUM_BUSSES 3
 
 struct HDK11MachineClass {
     MachineClass parent;
@@ -44,6 +44,7 @@ struct HDK11MachineClass {
 
 struct HDK11MachineState {
     MachineState       parent;
+    NxpS32GState       soc;
     MemoryRegion       sram;
     Clock              *xtal;
     CanBusState        *canbus[HDK11_CANFD_NUM_BUSSES];
@@ -60,7 +61,6 @@ OBJECT_DECLARE_TYPE(HDK11MachineState, HDK11MachineClass, HDK11_MACHINE)
 static void hdk11_init(MachineState *machine)
 {
     HDK11MachineState *hdk = HDK11_MACHINE(machine);
-    NxpS32GState *s32;
     int size = 0;
     MachineClass *mc = MACHINE_GET_CLASS(machine);
     Error *err = NULL;
@@ -78,15 +78,23 @@ static void hdk11_init(MachineState *machine)
     }
 
     memory_region_add_subregion(get_system_memory(), 0x80000000, machine->ram);
-    
-    s32 = NXP_S32G(object_new(TYPE_NXP_S32G));
-    qdev_prop_set_uint32(DEVICE(s32), "debug-uart", UART_DEBUG_MODULE);
+
+    object_initialize_child(OBJECT(machine), "s32-soc", &hdk->soc,
+                            TYPE_NXP_S32G);
+
+    qdev_prop_set_uint32(DEVICE(&hdk->soc), "debug-uart", UART_DEBUG_MODULE);
     hdk->xtal = clock_new(OBJECT(hdk), "XTAL");
     clock_set_hz(hdk->xtal, HDK_XTAL_FREQ);
-    qdev_connect_clock_in(DEVICE(s32), "sysclk", hdk->xtal);
-    object_property_add_child(OBJECT(machine), "soc", OBJECT(s32));
-    
-    if (!qdev_realize_and_unref(DEVICE(s32), NULL, &err)) {
+    qdev_connect_clock_in(DEVICE(&hdk->soc), "sysclk", hdk->xtal);
+
+    object_property_set_link(OBJECT(&hdk->soc), "canbus0", OBJECT(hdk->canbus[0]),
+                             &error_abort);
+    object_property_set_link(OBJECT(&hdk->soc), "canbus2", OBJECT(hdk->canbus[1]),
+                             &error_abort);
+    object_property_set_link(OBJECT(&hdk->soc), "canbus3", OBJECT(hdk->canbus[2]),
+                             &error_abort);
+
+    if (!qdev_realize_and_unref(DEVICE(&hdk->soc), NULL, &err)) {
         error_reportf_err(err, "Couldn't realize S32G SoC");
         exit(1);
     }
@@ -111,6 +119,11 @@ static void hdk11_machine_instance_init(Object *obj)
 
     object_property_add_link(obj, "canbus1", TYPE_CAN_BUS,
                              (Object **)&s->canbus[1],
+                             object_property_allow_set_link,
+                             0);
+    
+    object_property_add_link(obj, "canbus2", TYPE_CAN_BUS,
+                             (Object **)&s->canbus[2],
                              object_property_allow_set_link,
                              0);
 }
@@ -146,6 +159,7 @@ static const TypeInfo hdk11_typeinfo = {
     .parent = TYPE_MACHINE,
     .class_init = hdk11_class_init,
     .instance_init = hdk11_machine_instance_init,
+    .instance_size = sizeof(HDK11MachineState),
 };
 
 static void hdk11_register_types(void)

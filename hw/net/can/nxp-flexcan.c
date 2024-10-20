@@ -21,6 +21,7 @@
 #include "qemu/cutils.h"
 #include "qemu/event_notifier.h"
 #include "hw/qdev-properties.h"
+#include "qom/object.h"
 #include "qom/object_interfaces.h"
 #include "migration/vmstate.h"
 #include "hw/net/nxp-flexcan.h"
@@ -63,6 +64,145 @@ REG32(ERFCR, 0xc0c)
     FIELD(ERFCR, DMALW, 26, 5)
     FIELD(ERFCR, ERFEN, 31, 1)
 
+REG32(MBCTR, 0x0)
+    FIELD(MBCTR, TIMESTAMP, 0, 16)
+    FIELD(MBCTR, DLC, 16, 4)
+    FIELD(MBCTR, RTR, 20, 1)
+    FIELD(MBCTR, IDE, 21, 1)
+    FIELD(MBCTR, SRR, 22, 1)
+    FIELD(MBCTR, CODE, 24, 4)
+    FIELD(MBCTR, ESI, 29, 1)
+    FIELD(MBCTR, BRS, 30, 1)
+    FIELD(MBCTR, EDL, 30, 1)
+
+REG32(MBID, 0x4)
+    FIELD(MBID, IDEXT, 0, 29)
+    FIELD(MBID, IDSTD, 18, 11)
+    FIELD(MBID, PRIO, 29, 3)
+
+    
+static int can_frame_from_flexcan_mb(FlexCanState *s, qemu_can_frame *frame, uint32_t *msg)
+{
+    int i;
+    uint32_t *id = msg + 1;
+    char *data = (char *)&msg[2];
+    int ide = (*msg & R_MBCTR_IDE_MASK) >> R_MBCTR_IDE_SHIFT;
+    int idstd = (*id & R_MBID_IDSTD_MASK) >> R_MBID_IDSTD_SHIFT;
+    int idext = (*id & R_MBID_IDEXT_MASK) >> R_MBID_IDEXT_SHIFT;
+    int rtr = (*msg & R_MBCTR_RTR_MASK) >> R_MBCTR_RTR_SHIFT;
+    int dlc = (*msg & R_MBCTR_DLC_MASK) >> R_MBCTR_DLC_SHIFT;
+    qemu_canid_t can_id = 0;
+
+    if (rtr)
+        can_id |= BIT(30);
+
+    can_id |= ((ide) ? (BIT(31) | idext) : idstd);
+    
+    frame->can_id = can_id;
+    frame->can_dlc = dlc;
+    
+    for (i = 0; i < dlc; ++i) {
+        frame->data[i] = data[i];
+    }
+    
+    return 0;
+}
+
+static uint32_t *irq_mask_reg_from_mb_number(FlexCanState *s, int mb_num)
+{
+    switch(mb_num) {
+    case 0 ... 31:
+        return &s->imask1;
+    case 32 ... 63:
+        return &s->imask2;
+    case 64 ... 95:
+        return &s->imask3;
+    case 96 ... 127:
+        return &s->imask4;
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s (%s): FLEXCAN: Message Box Number out of Range %i\n",
+                      __FUNCTION__, object_get_canonical_path(OBJECT(s)), mb_num);
+        return NULL;
+    }
+}
+
+static uint32_t *irq_flag_reg_from_mb_number(FlexCanState *s, int mb_num)
+{
+    switch(mb_num) {
+    case 0 ... 31:
+        return &s->iflag1;
+    case 32 ... 63:
+        return &s->iflag2;
+    case 64 ... 95:
+        return &s->iflag3;
+    case 96 ... 127:
+        return &s->iflag4;
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s (%s): FLEXCAN: Message Box Number out of Range %i\n",
+                      __FUNCTION__, object_get_canonical_path(OBJECT(s)), mb_num);
+        return NULL;
+    }
+}
+
+static int update_flexcan_message_box(FlexCanState *s, int payload_size, int block_no, char *dname, char *prefix, int max_loop, int start_mb)
+    {
+        int left_to_read = 512;
+        int cnt = 0;
+        uint32_t *irq_mask_reg;
+        uint32_t *irq_flag_reg;
+        int irq_reg_bit;
+        int mb_size = payload_size + 8;
+        qemu_can_frame frame;
+        int mb_number = start_mb;
+        uint32_t *msg = (uint32_t *)((char *)s->can_msg_area + (block_no * 512));
+        uint32_t *id = msg + 1;
+        while (left_to_read >= mb_size) {
+            int code = (*msg & R_MBCTR_CODE_MASK) >> R_MBCTR_CODE_SHIFT;
+            int edl = (*msg & R_MBCTR_EDL_MASK) >> R_MBCTR_EDL_SHIFT;
+            int dlc = (*msg & R_MBCTR_DLC_MASK) >> R_MBCTR_DLC_SHIFT;
+            int ide = (*msg & R_MBCTR_IDE_MASK) >> R_MBCTR_IDE_SHIFT;
+            int prio = (*id & R_MBID_PRIO_MASK) >> R_MBID_PRIO_SHIFT;
+            int idstd = (*id & R_MBID_IDSTD_MASK) >> R_MBID_IDSTD_SHIFT;
+            int idext = (*id & R_MBID_IDEXT_MASK) >> R_MBID_IDEXT_SHIFT;
+            if (code == MB_RX_INACTIVE || code == MB_TX_INACTIVE) {
+                trace_flexcan_message_box_code_inactive(dname, block_no, cnt, edl, code, dlc, ide, prio, idstd, idext);
+            }
+            if (code == MB_RX_EMPTY) {
+                trace_flexcan_message_box_code_rx_empty(dname, block_no, cnt, edl, code, dlc, ide, prio, idstd, idext);
+            }
+            if (code == MB_RX_RANSWER) {
+                trace_flexcan_message_box_code_rx_ranswer(dname, block_no, cnt, edl, code, dlc, ide, prio, idstd, idext);
+            }
+            if (code == MB_TX_DATA_FRAME) {
+                trace_flexcan_message_box_code_data_frame(dname, block_no, cnt, edl, code, dlc, ide, prio, idstd, idext);
+                if (s->canfdbus) {
+                    irq_mask_reg = irq_mask_reg_from_mb_number(s, mb_number);
+                    irq_flag_reg = irq_flag_reg_from_mb_number(s, mb_number);
+                    irq_reg_bit = mb_number % 32;
+                    can_frame_from_flexcan_mb(s, &frame, msg);
+                    can_bus_client_send(&s->bus_client, &frame, 1);
+                    *irq_flag_reg |= BIT(irq_reg_bit);
+                    *msg &= ~R_MBCTR_CODE_MASK;
+                    *msg |= (MB_TX_INACTIVE << R_MBCTR_CODE_SHIFT);
+                    if ((*irq_mask_reg & BIT(irq_reg_bit))) {
+                        /* Only raise IRQ if not masked, otherwise simply raise it when the mask bit is set */
+                        qemu_irq_raise((mb_number < 8) ? s->irq_msg_lower : s->irq_msg_upper);
+                    }
+                }
+            }
+            cnt++;
+            mb_number++;
+            if (cnt >= max_loop)
+                break;
+            left_to_read -= mb_size;
+            msg += (mb_size / 4);
+            id = msg + 1;
+        }
+        return cnt;
+}
+    
 static void flexcan_reset(DeviceState *dev)
 {
     FlexCanState *s = FLEXCAN(dev);
@@ -111,6 +251,7 @@ static uint64_t flexcan_read(void *opaque, hwaddr addr, unsigned size)
 {
     FlexCanState *s = opaque;
     uint32_t value = 0;
+    char *data;
     uint64_t pc = current_cpu->cc->get_pc(current_cpu);
 
     switch (addr) {
@@ -181,7 +322,8 @@ static uint64_t flexcan_read(void *opaque, hwaddr addr, unsigned size)
         value = s->iflag3;
         break;
     case 0x80 ... 0x87f:
-        /* printf("--------------> READING FROM MESSAGE BUFFER\n"); */
+        data = (char *)s->can_msg_area + (addr - 0x80);
+        memcpy(&value, data, size);
         break;
     case 0x880 ... 0xa7c:
         value = s->rximr[(addr - 0x880) / 4];
@@ -244,10 +386,10 @@ static uint64_t flexcan_read(void *opaque, hwaddr addr, unsigned size)
         value = s->hr_time_stamp[(addr - 0xc30) / 4];
         break;
     case 0x1000 ... 0x17ff:
-        /* printf("--------------> READING FROM  CNAFD MESSAGE BUFFER\n"); */
+        data = (char *)s->can_msg_area + FLEXCAN_RAM_BLOCK_ONE_SIZE + (addr - 0x1000);
+        memcpy(&value, data, size);
         break;
     case 0x2000 ... 0x29fc:
-        /* printf("--------------> READING FROM ENHANCED RXFIFO MESSAGE BUFFER\n"); */
         break;
     case 0x3000 ... 0x31FC:
         value = s->erffel[(addr - 0x3000) / 4];
@@ -256,90 +398,32 @@ static uint64_t flexcan_read(void *opaque, hwaddr addr, unsigned size)
         break;
     }
     
-    trace_flexcan_can_read_register(object_get_canonical_path(OBJECT(s)), addr, size, value, pc, s->freeze_mode, s->low_power_mode, s->fd_en, s->rx_fifo_en, s->enh_rx_fifo_en);
+    trace_flexcan_can_read_register(object_get_canonical_path(OBJECT(s)), addr, size, value, s->freeze_mode, s->low_power_mode, s->fd_en, s->rx_fifo_en, s->enh_rx_fifo_en, pc);
     return value;
-}
-
-#define verbose_trace_flexcan_message_box(STATE, N, BLOCK_NO, DNAME, PREFIX)     \
-{ \
-        int i = 0;                                                       \
-        int left_to_read = 512; \
-        flexcan_message_##N##_t *msg = (flexcan_message_##N##_t *)(char *)STATE->can_msg_area + (BLOCK_NO * 512); \
-        while (left_to_read > 0) { \
-        if (msg->msg.cs.code == MB_RX_INACTIVE || msg->msg.cs.code == MB_TX_INACTIVE) \
-            trace_flexcan_message_box_code_inactive(obj_name, i, bno, msg->msg.cs.brs, msg->msg.cs.code, msg->msg.cs.dlc, msg->msg.cs.ide, msg->msg.cs.prio, msg->msg.cs.id_std, msg->msg.cs.id_ext); \
-        if (msg->msg.cs.code == MB_RX_EMPTY) \
-           trace_flexcan_message_box_code_rx_empty(obj_name, i, bno, msg->msg.cs.brs, msg->msg.cs.code, msg->msg.cs.dlc, msg->msg.cs.ide, msg->msg.cs.prio, msg->msg.cs.id_std, msg->msg.cs.id_ext); \
-        if (msg->msg.cs.code == MB_RX_RANSWER) \
-            trace_flexcan_message_box_code_rx_ranswer(obj_name, i, bno, msg->msg.cs.brs, msg->msg.cs.code, msg->msg.cs.dlc, msg->msg.cs.ide, msg->msg.cs.prio, msg->msg.cs.id_std, msg->msg.cs.id_ext); \
-        if (msg->msg.cs.code == MB_TX_DATA_FRAME) \
-            trace_flexcan_message_box_code_data_frame(obj_name, i, bno, msg->msg.cs.brs, msg->msg.cs.code, msg->msg.cs.dlc, msg->msg.cs.ide, msg->msg.cs.prio, msg->msg.cs.id_std, msg->msg.cs.id_ext); \
-            i++; \
-            left_to_read -= sizeof(*msg); \
-        } \
-}
-
-static void verbose_trace_flexcanfd_message_box(FlexCanState *s, char *obj_name, const char *prefix, int bno)
-{
-    int i = 0;
-    int left_to_read = 512;
-    flexcan_message_64_t *msg = (flexcan_message_64_t *)(char *)s->canfd_msg_area + ((bno - 4) * 512);
-    while (left_to_read > 0) {
-        if (msg->msg.cs.code == MB_RX_INACTIVE || msg->msg.cs.code == MB_TX_INACTIVE)
-            trace_flexcan_fd_message_box_code_inactive(obj_name, i, bno, msg->msg.cs.brs, msg->msg.cs.code, msg->msg.cs.dlc, msg->msg.cs.ide, msg->msg.cs.prio, msg->msg.cs.id_std, msg->msg.cs.id_ext);
-        if (msg->msg.cs.code == MB_RX_EMPTY)
-           trace_flexcan_fd_message_box_code_rx_empty(obj_name, i, bno, msg->msg.cs.brs, msg->msg.cs.code, msg->msg.cs.dlc, msg->msg.cs.ide, msg->msg.cs.prio, msg->msg.cs.id_std, msg->msg.cs.id_ext);
-        if (msg->msg.cs.code == MB_RX_RANSWER)
-            trace_flexcan_fd_message_box_code_rx_ranswer(obj_name, i, bno, msg->msg.cs.brs, msg->msg.cs.code, msg->msg.cs.dlc, msg->msg.cs.ide, msg->msg.cs.prio, msg->msg.cs.id_std, msg->msg.cs.id_ext);
-        if (msg->msg.cs.code == MB_TX_DATA_FRAME)
-            trace_flexcan_fd_message_box_code_data_frame(obj_name, i, bno, msg->msg.cs.brs, msg->msg.cs.code, msg->msg.cs.dlc, msg->msg.cs.ide, msg->msg.cs.prio, msg->msg.cs.id_std, msg->msg.cs.id_ext);
-        i++;
-        left_to_read -= sizeof(*msg);
-    }
-}
-
-    
-static void verbose_trace_flexcan_ram_block(FlexCanState *s, char *obj_name, const char *prefix, uint32_t msg_size, int bno)
-{
-    if (bno > 3) {
-        verbose_trace_flexcanfd_message_box(s, obj_name, prefix, bno);
-    } else {
-        switch(msg_size) {
-        case 8:
-            verbose_trace_flexcan_message_box(s, 8, bno, obj_name, prefix)
-                break;
-        case 16:
-            verbose_trace_flexcan_message_box(s, 16, bno, obj_name, prefix)
-                break;
-        case 32:
-            verbose_trace_flexcan_message_box(s, 32, bno, obj_name, prefix)
-                break;
-        case 64:
-            verbose_trace_flexcan_message_box(s, 64, bno, obj_name, prefix)
-                break;
-        }
-    }
 }
 
 static void flexcan_update_state(FlexCanState *s)
 {
-    int r0s, r1s, r2s, r3s;
+    int rsz[] = {8, 8, 8, 8, 64, 64, 64, 64};
     char obj_name[60];
+    char prefix[16];
+    int i;
+    int mb_count, mb_no = 0;
+    int max_mbs =  (s->mcr & R_MCR_MAXMB_MASK) + 1;
+    
     snprintf(obj_name, sizeof(obj_name), "%s", object_get_canonical_path(OBJECT(s)));
     if (s->fd_en) {
-        r0s = 8 * (1 << ((s->fdctrl & R_FDCTRL_MBDSR0_MASK) >> R_FDCTRL_MBDSR0_SHIFT));
-        r1s = 8 * (1 << ((s->fdctrl & R_FDCTRL_MBDSR1_MASK) >> R_FDCTRL_MBDSR1_SHIFT));
-        r2s = 8 * (1 << ((s->fdctrl & R_FDCTRL_MBDSR2_MASK) >> R_FDCTRL_MBDSR2_SHIFT));
-        r3s = 8 * (1 << ((s->fdctrl & R_FDCTRL_MBDSR3_MASK) >> R_FDCTRL_MBDSR3_SHIFT));
-        /* printf("%s: FD Enabled with R0 = %i, R1 = %i, R2 = %i, R3 = %i\n", object_get_canonical_path(OBJECT(s)), r0s, r1s, r2s, r3s); */
-        verbose_trace_flexcan_ram_block(s, obj_name, "r0", r0s, 0);
-        verbose_trace_flexcan_ram_block(s, obj_name, "r1", r1s, 1);
-        verbose_trace_flexcan_ram_block(s, obj_name, "r2", r2s, 2);
-        verbose_trace_flexcan_ram_block(s, obj_name, "r3", r3s, 3);
-        verbose_trace_flexcan_ram_block(s, obj_name, "r4", 64, 4);
-        verbose_trace_flexcan_ram_block(s, obj_name, "r5", 64, 5);
-        verbose_trace_flexcan_ram_block(s, obj_name, "r6", 64, 6);
-        verbose_trace_flexcan_ram_block(s, obj_name, "r7", 64, 7);
+        rsz[0] = 8 * (1 << ((s->fdctrl & R_FDCTRL_MBDSR0_MASK) >> R_FDCTRL_MBDSR0_SHIFT));
+        rsz[1] = 8 * (1 << ((s->fdctrl & R_FDCTRL_MBDSR1_MASK) >> R_FDCTRL_MBDSR1_SHIFT));
+        rsz[2] = 8 * (1 << ((s->fdctrl & R_FDCTRL_MBDSR2_MASK) >> R_FDCTRL_MBDSR2_SHIFT));
+        rsz[3] = 8 * (1 << ((s->fdctrl & R_FDCTRL_MBDSR3_MASK) >> R_FDCTRL_MBDSR3_SHIFT));
+    }
+            
+    for (i = 0; i < FLEXCAN_NUM_RAM_BANKS && (max_mbs > 0); ++i) {
+        snprintf(prefix, sizeof(prefix), "r%i", i);
+        mb_count = update_flexcan_message_box(s, rsz[i], i, obj_name, prefix, max_mbs, mb_no);
+        max_mbs -= mb_count;
+        mb_no += mb_count;
     }
 }
 
@@ -349,14 +433,15 @@ static void flexcan_write(void *opaque, hwaddr addr, uint64_t value, unsigned si
     FlexCanState *s = opaque;
     uint64_t pc = current_cpu->cc->get_pc(current_cpu);
     char *data;
+    uint32_t tmp;
     
-    trace_flexcan_can_write_register(object_get_canonical_path(OBJECT(s)), addr, size, value);
+    trace_flexcan_can_write_register(object_get_canonical_path(OBJECT(s)), addr, size, value, pc);
     
     switch (addr) {
         case 0x00:
             /* Handle SoftReset */
             if (value & R_MCR_SOFTRST_MASK) {
-                flexcan_reset(DEVICE(s));
+                /* flexcan_reset(DEVICE(s)); */
                 value &= ~R_MCR_SOFTRST_MASK;
             }
             if (value & R_MCR_HALT_MASK && s->mcr & R_MCR_FRZ_MASK) {
@@ -380,10 +465,11 @@ static void flexcan_write(void *opaque, hwaddr addr, uint64_t value, unsigned si
                 trace_flexcan_exit_freeze_mode(object_get_canonical_path(OBJECT(s)));
                 s->freeze_mode = false;
                 value &= ~R_MCR_FRZACK_MASK;
+                s->esr1 |= (BIT(18) | BIT(7));
             }
             if (s->freeze_mode == true) {
-                s->fd_en = !!(value & R_MCR_FDEN_MASK);
-                s->rx_fifo_en = !!(value & R_MCR_RFEN_MASK);
+                s->fd_en = (value & R_MCR_FDEN_MASK) >> R_MCR_FDEN_SHIFT;
+                s->rx_fifo_en = (value & R_MCR_RFEN_MASK) >> R_MCR_RFEN_SHIFT;
             }
             s->mcr = value;
             break;
@@ -403,52 +489,90 @@ static void flexcan_write(void *opaque, hwaddr addr, uint64_t value, unsigned si
             s->rx15mask = value;
             break;
         case 0x1C:
-            s->ecr = value;
+            s->ecr = value & 0x0000ffff;
             break;
         case 0x20:
-            s->esr1 = value;
+            if (value & BIT(1))
+                s->esr1 &= ~BIT(1);
+            if (value & BIT(2))
+                s->esr1 &= ~BIT(2);
+            if (value & BIT(16))
+                s->esr1 &= ~BIT(16);
+            if (value & BIT(17))
+                s->esr1 &= ~BIT(17);
+            if (value & BIT(19))
+                s->esr1 &= ~BIT(19);
+            if (value & BIT(20))
+                s->esr1 &= ~BIT(20);
+            if (value & BIT(21))
+                s->esr1 &= ~BIT(21);
             break;
         case 0x24:
             s->imask2 = value;
+            if (s->imask2 & s->iflag2)
+                qemu_irq_raise(s->irq_msg_upper);
             break;
         case 0x28:
             s->imask1 = value;
+            tmp = s->imask1 & s->iflag1;
+            if (tmp) {
+                if (tmp & 0xff) 
+                    qemu_irq_raise(s->irq_msg_lower);
+                if (tmp & 0xffffff00) 
+                    qemu_irq_raise(s->irq_msg_upper);
+            }
             break;
         case 0x2C:
-            s->iflag2 = value;
+            tmp = ~(value & 0xffffffff);
+            s->iflag2 &= tmp;
+            if (value)
+                qemu_irq_lower(s->irq_msg_upper);
             break;
         case 0x30:
-            s->iflag1 = value;
+            tmp = ~(value & 0xffffffff);
+            s->iflag1 &= tmp;
+            if (value & 0xff) {
+                qemu_irq_lower(s->irq_msg_lower);
+            }
+            if (value & 0xffffff00) {
+                qemu_irq_lower(s->irq_msg_upper);
+            }
             break;
         case 0x34:
-            s->ctrl2 = value;
+            s->ctrl2 = value & 0xffffbfc0;
             break;
         case 0x38:
-            s->esr2 = value;
-            break;
         case 0x44:
-            s->crcr = value;
             break;
         case 0x48:
             s->rxfgmask = value;
             break;
         case 0x4C:
-            s->rxfir = value;
             break;
         case 0x50:
             s->cbt = value;
             break;
         case 0x68:
             s->imask4 = value;
+            if (s->imask4 & s->iflag4)
+                qemu_irq_raise(s->irq_msg_upper);
             break;
         case 0x6C:
             s->imask3 = value;
+            if (s->imask3 & s->iflag3)
+                qemu_irq_raise(s->irq_msg_upper);
             break;
         case 0x70:
-            s->iflag4 = value;
+            tmp = ~(value & 0xffffffff);
+            s->iflag4 &= tmp;
+            if (value)
+                qemu_irq_lower(s->irq_msg_upper);
             break;
         case 0x74:
-            s->iflag3 = value;
+            tmp = ~(value & 0xffffffff);
+            s->iflag3 &= tmp;
+            if (value)
+                qemu_irq_lower(s->irq_msg_upper);
             break;
         case 0x80 ... 0x87f:
             trace_flexcan_can_message_buffer_write(object_get_canonical_path(OBJECT(s)), addr, size, value, pc);
@@ -459,68 +583,69 @@ static void flexcan_write(void *opaque, hwaddr addr, uint64_t value, unsigned si
             s->rximr[(addr - 0x880) / 4] = value;
             break;
         case 0xae0:
-            s->mecr = value;
+            s->mecr = value & 0x800de380;
             break;
         case 0xae4:
-            s->erriar = value;
+            s->erriar = value & 0x00003ffc;
             break;
         case 0xae8:
             s->erridpr = value;
             break;
         case 0xaec:
-            s->errippr = value;
+            s->errippr = value & 0x1f1f1f1f;
             break;
         case 0xaf0:
-            s->rerrar = value;
-            break;
         case 0xaf4:
-            s->rerrdr = value;
-            break;
         case 0xaf8:
-            s->rerrsynr = value;
-            break;
         case 0xafc:
-            s->errsr = value;
             break;
         case 0xbf0:
-            s->eprs = value;
+            s->eprs = value & 0x03ff03ff;
             break;
         case 0xbf4:
-            s->encbt = value;
+            s->encbt = value & 0x1fc7f0ff;
             break;
         case 0xbf8:
-            s->edcbt = value;
+            s->edcbt = value & 0x03c0f01f;
             break;
         case 0xbfc:
-            s->etdc = value;
+            s->etdc = value & 0xc07f8000;
             break;
         case 0xc00:
-            s->fdctrl = value;
+            if (value & BIT(14))
+                value &= ~BIT(14);
+            s->fdctrl = value & 0x86dbdf00;
             break;
         case 0xc04:
-            s->fdcbt = value;
+            s->fdcbt = value & 0x3ff77ce7;
             break;
         case 0xc08:
-            s->fdcrc = value;
             break;
         case 0xc0c:
-            if (s->freeze_mode) {
+            if (s->freeze_mode)
                 s->enh_rx_fifo_en = !!(value & R_ERFCR_ERFEN_MASK);
-            }
-            s->erfcr = value;
+            s->erfcr = value & 0xfc7f3f1f;
             break;
         case 0xc10:
-            s->erfier = value;
+            s->erfier = value & 0xf0000000;
             break;
         case 0xc14:
-            s->erfsr = value;
+            if (value & BIT(28))
+                value &= ~BIT(28);
+            if (value & BIT(29))
+                value &= ~BIT(29);
+            if (value & BIT(30))
+                value &= ~BIT(30);
+            if (value & BIT(31))
+                value &= ~BIT(31);
+            s->erfsr = value & 0x08000000;
             break;
         case 0xc30 ... 0xe2c:
             s->hr_time_stamp[(addr - 0xc30) / 4] = value;
             break;
         case 0x1000 ... 0x17ff:
             trace_flexcan_canfd_message_buffer_write(object_get_canonical_path(OBJECT(s)), addr, size, value, pc);
-            data = (char *)s->canfd_msg_area + (addr - 0x1000);
+            data = (char *)s->can_msg_area + FLEXCAN_RAM_BLOCK_ONE_SIZE + (addr - 0x1000);
             memcpy(data, &value, size);
             break;
         case 0x2000 ... 0x29fc:
@@ -532,7 +657,10 @@ static void flexcan_write(void *opaque, hwaddr addr, uint64_t value, unsigned si
         default:
             break;
     }
-    flexcan_update_state(s);
+
+    if (s->freeze_mode == false)
+        flexcan_update_state(s);
+
 }
 
 static const MemoryRegionOps flexcan_ops = {
@@ -569,6 +697,7 @@ static int flexcan_canfd_connect_to_bus(FlexCanState *s,
                                      CanBusState *bus)
 {
     s->bus_client.info = &canfd_flexcan_bus_client_info;
+    trace_flexcan_can_bus_connected(object_get_canonical_path(OBJECT(s)), object_get_canonical_path_component(OBJECT(bus)));
     return can_bus_insert_client(bus, &s->bus_client);
 }
 
@@ -589,13 +718,11 @@ static void flexcan_realize(DeviceState *dev, Error **errp)
             error_setg(errp, "%s: flexcan_canfd_connect_to_bus failed", path);
             return;
         }
-    } /* else { */
-    /*     error_setg(errp, "%s: no bus assigned", object_get_canonical_path(OBJECT(s))); */
-    /* } */
+    }
 }
 
 static Property canfd_core_properties[] = {
-    DEFINE_PROP_UINT64("ext_clk_freq", FlexCanState, ext_clk_hz,1e6),
+    DEFINE_PROP_UINT64("ext_clk_freq", FlexCanState, ext_clk_hz, 1e6),
     DEFINE_PROP_LINK("canfdbus", FlexCanState, canfdbus, TYPE_CAN_BUS,
                      CanBusState *),
     DEFINE_PROP_END_OF_LIST(),
