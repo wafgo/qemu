@@ -8,11 +8,13 @@
 #include "hw/register.h"
 
 #define FLEXCAN_NUM_RAM_BANKS 8
+#define FLEXCAN_RAM_BLOCK_SIZE 512
+#define FLEXCAN_MB_CTRL_BLOCK_SIZE 8
 #define FLEXCAN_RAM_BLOCK_ONE_SIZE 2048
 #define FLEXCAN_FD_MB_NUM 28
 #define FLEXCAN_FIFO_DEPTH 128
 
-#define MB_BUSY_BIT BIT(0)
+#define MB_BUSY_BIT BIT(24)
 
 #define MB_RX_INACTIVE 0x0
 #define MB_RX_EMPTY 0x4
@@ -25,6 +27,9 @@
 #define MB_TX_DATA_FRAME 0xC
 #define MB_TX_REMOTE 0xC // distignuished from DATA FRAME through MB RTR Bit
 #define MB_TX_TANSWER 0xE
+
+#define MB_LOCKED BIT(0)
+#define MB_INACTIVE BIT(1)
 
 #define TYPE_FLEXCAN "flexcan"
 OBJECT_DECLARE_SIMPLE_TYPE(FlexCanState, FLEXCAN)
@@ -39,6 +44,7 @@ struct FlexCanState {
     bool fd_en;
     bool rx_fifo_en;
     bool enh_rx_fifo_en;
+    uint32_t mb_flags[FLEXCAN_FIFO_DEPTH];
     char can_msg_area[2 * FLEXCAN_RAM_BLOCK_ONE_SIZE];
     uint64_t ext_clk_hz;
     qemu_irq irq_bus_off;

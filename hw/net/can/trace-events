@@ -28,6 +28,8 @@ flexcan_message_box_code_inactive(char *path, int ram_block, int mb_no, int edl,
 flexcan_message_box_code_rx_empty(char *path, int ram_block, int mb_no, int edl, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, edl: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
 flexcan_message_box_code_rx_ranswer(char *path, int ram_block, int mb_no, int edl, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, edl: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
 flexcan_message_box_code_data_frame(char *path, int ram_block, int mb_no, int edl, int code, int dlc, int ide, int prio, int id_std, int id_ext) "%s: ram_block: %i, mb_no: %i, edl: 0x%x, code: 0x%x, dlc: 0x%x, ide: 0x%x, prio: 0x%x, id_std: 0x%x, id_ext: 0x%x"
-flexcan_can_bus_connected(char *path, const char *bus) "%s: connected to %s"
+flexcan_can_bus_connected(char *path) "%s"
+flexcan_can_rx_discard(char *path, int id) "%s: Discarding received CANID 0x%x"
+flexcan_can_rx_received(char *path, int id, int dlc) "%s: can_id: 0x%x, dlc: %i"
 
 
