@@ -53,7 +53,8 @@ static void s32_stm_interrupt(void *opaque)
 {
     S32STMTimerState *s = opaque;
     int i;
-    
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+
     s->irq_count++;
     trace_s32_stm_interrupt_handler(object_get_canonical_path_component(OBJECT(s)), s->irq_count);
     for (i = 0; i < STM_NUM_CHANNELS; ++i) {
@@ -63,18 +64,17 @@ static void s32_stm_interrupt(void *opaque)
     }
     s32_stm_update(s, s->stm_cr);
     qemu_irq_raise(s->irq);
+    s->prev_int = now;
 }
 
-static inline int64_t s32_stm_ns_to_ticks(S32STMTimerState *s, int64_t t)
+static inline int64_t s32_stm_ns_to_ticks(S32STMTimerState *s, int64_t ns)
 {
-    uint32_t prescaler = ((s->stm_cr >> 8) & 0xff) + 1;
-    return muldiv64(t, s->freq_hz, 1000000000ULL) / prescaler;
+    return muldiv64(ns, s->freq_hz, 1000000000ULL) / s->prescaler;
 }
 
 static inline int64_t s32_stm_ticks_to_ns(S32STMTimerState *s, int64_t ticks)
 {
-    uint32_t prescaler = ((s->stm_cr >> 8) & 0xff) + 1;
-    return muldiv64(ticks * prescaler, 1000000000ULL, s->freq_hz) + 1000000;
+    return muldiv64(ticks * s->prescaler, 1000000000ULL, s->freq_hz);
 }
 
 static void s32_stm_reset(DeviceState *dev)
@@ -98,6 +98,7 @@ static void s32_stm_reset(DeviceState *dev)
     s->stm_cmp2 = 0;
     s->stm_cmp3 = 0;
 
+    s->prescaler = 1;
     s->tick_offset = s32_stm_ns_to_ticks(s, now);
 }
 
@@ -152,49 +153,43 @@ static uint64_t s32_stm_read(void *opaque, hwaddr offset,
 
 static void s32_stm_update(S32STMTimerState *s, uint32_t prev_cr)
 {
+#define calc_next_alarm_channel(_n_) \
+    if (s->stm_ccr##_n_ & BIT(0)) { \
+            requested_ticks = (s->stm_cmp##_n_ > s->stm_cnt) ? (s->stm_cmp##_n_ - s->stm_cnt) : (0xffffffff - s->stm_cnt + s->stm_cmp##_n_); \
+            next_alarm[_n_] = now + MAX(s32_stm_ticks_to_ns(s, requested_ticks), 1e7);  \
+            trace_s32_stm_update(object_get_canonical_path_component(OBJECT(s)), _n_, requested_ticks, now, next_alarm[_n_]); \
+        }
+    
     int64_t next_alarm[STM_NUM_CHANNELS] = {INT64_MAX, INT64_MAX, INT64_MAX, INT64_MAX};
     int64_t requested_ticks = -1;
     int i;
     int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-    
+
+    s->stm_cnt = s32_stm_ns_to_ticks(s, now);
     if ((prev_cr & BIT(0)) && !(s->stm_cr & BIT(0))) {
         trace_s32_stm_disable_timer(object_get_canonical_path_component(OBJECT(s)));
         return;
     }
     /* Only do something if timer is enabled */
     if (s->stm_cr & BIT(0)) {
-        if (s->stm_ccr0 & BIT(0)) {
-            requested_ticks = (s->stm_cmp0 > s->stm_cnt) ? (s->stm_cmp0 - s->stm_cnt) : (0xffffffff - s->stm_cnt + s->stm_cmp0);
-            next_alarm[0] = now + s32_stm_ticks_to_ns(s, requested_ticks);
-            trace_s32_stm_update(object_get_canonical_path_component(OBJECT(s)), 0, requested_ticks, now, next_alarm[0]);
-        }
-        if (s->stm_ccr1 & BIT(0)) {
-            requested_ticks = (s->stm_cmp1 > s->stm_cnt) ? (s->stm_cmp1 - s->stm_cnt) : (0xffffffff - s->stm_cnt + s->stm_cmp1);
-            next_alarm[1] = now + s32_stm_ticks_to_ns(s, requested_ticks);
-            trace_s32_stm_update(object_get_canonical_path_component(OBJECT(s)), 1, requested_ticks, now, next_alarm[1]);
-        }
-        if (s->stm_ccr2 & BIT(0)) {
-            requested_ticks = (s->stm_cmp2 > s->stm_cnt) ? (s->stm_cmp2 - s->stm_cnt) : (0xffffffff - s->stm_cnt + s->stm_cmp2);
-            next_alarm[2] = now + s32_stm_ticks_to_ns(s, requested_ticks);
-            trace_s32_stm_update(object_get_canonical_path_component(OBJECT(s)), 2, requested_ticks, now, next_alarm[2]);
-        }
-        if (s->stm_ccr3 & BIT(0)) {
-            requested_ticks = (s->stm_cmp3 > s->stm_cnt) ? (s->stm_cmp3 - s->stm_cnt) : (0xffffffff - s->stm_cnt + s->stm_cmp3);
-            next_alarm[3] = now + s32_stm_ticks_to_ns(s, requested_ticks);
-            trace_s32_stm_update(object_get_canonical_path_component(OBJECT(s)),3, requested_ticks, now, next_alarm[3]);
-        }
+        calc_next_alarm_channel(0)
+        calc_next_alarm_channel(1)
+        calc_next_alarm_channel(2)
+        calc_next_alarm_channel(3)
         
         if (requested_ticks >= 0) {
             s->hit_time = MIN(next_alarm[3], MIN(next_alarm[2], MIN(next_alarm[0], next_alarm[1])));
+
             for (i = 0; i < STM_NUM_CHANNELS; ++i) {
                 if (s->hit_time == next_alarm[i])
                     s->irq_channel |= BIT(i);
             }
-
+            
             trace_s32_stm_timer_update(object_get_canonical_path_component(OBJECT(s)), next_alarm[0], next_alarm[1], next_alarm[2], next_alarm[3], s->hit_time);
             timer_mod(s->timer, s->hit_time);
         }
     }
+#undef calc_next_alarm_channel
 }
 
 static void s32_stm_write(void *opaque, hwaddr offset,
@@ -211,6 +206,7 @@ static void s32_stm_write(void *opaque, hwaddr offset,
     switch (offset) {
     case STM_CR:
         s->stm_cr = value;
+        s->prescaler = ((s->stm_cr >> 8) & 0xff) + 1;
         break;
     case STM_CNT:
         s->stm_cnt = value;
@@ -296,7 +292,7 @@ static const VMStateDescription vmstate_s32stm = {
 
 static Property s32_stm_properties[] = {
     DEFINE_PROP_UINT64("clock-frequency", struct S32STMTimerState,
-                       freq_hz, 100000000),
+                       freq_hz, 100e6),
     DEFINE_PROP_END_OF_LIST(),
 };
 

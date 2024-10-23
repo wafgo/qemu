@@ -66,7 +66,9 @@ struct S32STMTimerState {
     uint32_t irq_count;
     int64_t tick_offset;
     uint64_t hit_time;
+    uint64_t prev_int;
     uint64_t freq_hz;
+    int prescaler;
 
     uint32_t stm_cr;
     uint32_t stm_cnt;
