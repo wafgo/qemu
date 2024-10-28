@@ -335,7 +335,6 @@ static uint64_t flexcan_read(void *opaque, hwaddr addr, unsigned size)
     int address_addend = 0;
     int start_block = 0;
     int data_offset = 0;
-    uint64_t pc = current_cpu->cc->get_pc(current_cpu);
 
     switch (addr) {
     case 0x0:
@@ -494,7 +493,7 @@ static uint64_t flexcan_read(void *opaque, hwaddr addr, unsigned size)
         break;
     }
     
-    trace_flexcan_can_read_register(flexcan_get_device_name(s), addr, size, value, s->freeze_mode, s->low_power_mode, s->fd_en, s->rx_fifo_en, s->enh_rx_fifo_en, pc);
+    trace_flexcan_can_read_register(flexcan_get_device_name(s), addr, size, value, s->freeze_mode, s->low_power_mode, s->fd_en, s->rx_fifo_en, s->enh_rx_fifo_en);
     return value;
 }
 
@@ -525,7 +524,6 @@ static void flexcan_update_state(FlexCanState *s)
 static void flexcan_write(void *opaque, hwaddr addr, uint64_t value, unsigned size)
 {
     FlexCanState *s = opaque;
-    uint64_t pc = current_cpu->cc->get_pc(current_cpu);
     char *data;
     uint32_t tmp;
     int rel_offset;
@@ -534,7 +532,7 @@ static void flexcan_write(void *opaque, hwaddr addr, uint64_t value, unsigned si
     int start_block = 0;
     int data_offset = 0;
     int mb_number;    
-    trace_flexcan_can_write_register(flexcan_get_device_name(s), addr, size, value, pc);
+    trace_flexcan_can_write_register(flexcan_get_device_name(s), addr, size, value);
     
     switch (addr) {
         case 0x00:
@@ -681,7 +679,7 @@ static void flexcan_write(void *opaque, hwaddr addr, uint64_t value, unsigned si
         case 0x80 ... 0x87f:
         {
             rel_offset = addr - 0x80 + address_addend;
-            trace_flexcan_can_message_buffer_write(flexcan_get_device_name(s), addr, size, value, pc);
+            trace_flexcan_can_message_buffer_write(flexcan_get_device_name(s), addr, size, value);
             data = (char *)s->can_msg_area + data_offset + (addr - 0x80 + address_addend);
             memcpy(data, &value, size);
             field_type = flexcan_get_mb_field_from_offset(s, start_block + (rel_offset/FLEXCAN_RAM_BLOCK_SIZE), rel_offset%FLEXCAN_RAM_BLOCK_SIZE, size, &mb_number);
@@ -754,7 +752,7 @@ static void flexcan_write(void *opaque, hwaddr addr, uint64_t value, unsigned si
             s->hr_time_stamp[(addr - 0xc30) / 4] = value;
             break;
         case 0x2000 ... 0x29fc:
-            trace_flexcan_canfd_message_buffer_write(flexcan_get_device_name(s), addr, size, value, pc);
+            trace_flexcan_canfd_message_buffer_write(flexcan_get_device_name(s), addr, size, value);
             if (s->freeze_mode == false)
                 flexcan_update_state(s);
             break;
