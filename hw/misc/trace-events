@@ -409,3 +409,10 @@ ivshmem_flat_interrupt_peer(uint16_t peer_id, uint16_t vector_id) "Interrupting 
 i2c_echo_event(const char *id, const char *event) "%s: %s"
 i2c_echo_recv(const char *id, uint8_t data) "%s: recv 0x%02" PRIx8
 i2c_echo_send(const char *id, uint8_t data) "%s: send 0x%02" PRIx8
+
+# ti-dmsc.c
+dmsc_handle_set_clock(const char *type, const char *host_name, const char *device_name, int clk) "%s received from host %s, device %s, clk: %i"
+dmsc_handle_get_device(const char *type, const char *host_name, const char *device_name) "%s received from host %s, device %s"
+dmsc_handle_get_clock(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
+dmsc_handle_get_clock_parents(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
+dmsc_handle_query_freq(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32, uint64_t target_freq) "%s received from host %s, device %s, clk %u, clk32 %u, target_frequency %"PRIu64

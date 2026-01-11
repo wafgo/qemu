@@ -1,0 +1,43 @@
+/*
+ * TI AM64x SoC family
+ *
+ * Copyright (c) 2025 Wadim Mueller <wadim.mueller@cmblu.de>
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * This work is licensed under the terms of the GNU GPL, version 2 or later.
+ * See the COPYING file in the top-level directory.
+ *
+ */
+
+#ifndef HW_ARM_TI_AM64X_H
+#define HW_ARM_TI_AM64X_H
+
+#include "qemu/osdep.h"
+#include "system/memory.h"
+#include "hw/arm/armv7m.h"
+#include "hw/clock.h"
+#include "qom/object.h"
+#include "hw/misc/ti-rat.h"
+#include "hw/misc/ti-sec-proxy.h"
+#include "hw/misc/ti-dmsc.h"
+
+#define TYPE_TI_AM64X "ti-am64x"
+OBJECT_DECLARE_SIMPLE_TYPE(TIAM64xState, TI_AM64X)
+
+struct TIAM64xState {
+    SysBusDevice parent_obj;
+    ARMv7MState armv7m;
+    MemoryRegion mcu_iram;
+    MemoryRegion mcu_dram;
+    MemoryRegion mcu_root;
+    MemoryRegion soc_root;
+    AddressSpace soc_as;
+    Clock *sysclk;
+    Clock *refclk;
+    TIRATState rat;
+    TISecProxyState sec_proxy;
+    TIDmscState dmsc;
+};
+
+#endif

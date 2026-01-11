@@ -129,6 +129,15 @@ config MPS2_SCC
     bool
     select LED
 
+config TI_DMSC
+    bool
+
+config TI_RAT
+    bool
+
+config TI_SEC_PROXY
+    bool
+
 config TZ_MPC
     bool
 
