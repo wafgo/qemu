@@ -26,6 +26,7 @@
 #include "qemu/units.h"
 #include "hw/misc/ti-rat.h"
 #include "hw/qdev-properties.h"
+#include "trace.h"
 
 #define TI_RAT_WINDOW_BASE  0x60000000ULL
 #define TI_RAT_WINDOW_SIZE  (2ULL * GiB)
@@ -55,7 +56,7 @@ static void ti_rat_apply_entry(TIRATState *s, TIRATEntry *e)
     
     /* validate */
     if (!en) {
-        qemu_log("Disabling RAT Region %u\n", e->idx);
+        trace_rat_disable_region(e->idx);
         if (e->inserted) {
             memory_region_transaction_begin();
             memory_region_set_enabled(&e->alias, false);
@@ -80,8 +81,7 @@ static void ti_rat_apply_entry(TIRATState *s, TIRATEntry *e)
 
     hwaddr woff = source_addr - s->window_base;
     e->size = size;
-    qemu_log("Enabling RAT Region %u: size 0x%"PRIx64" map 0x%"HWADDR_PRIx" -> 0x%"HWADDR_PRIx"\n",
-             e->idx, e->size, source_addr, dest_addr);
+    trace_rat_enable_region(e->idx, e->size, source_addr, dest_addr);
 
     memory_region_transaction_begin();
 
@@ -123,7 +123,7 @@ static uint64_t ti_rat_read(void *opaque, hwaddr off, unsigned size)
     entry = (off - RAT_ENT_BASE) / RAT_ENT_STRIDE;
     rel_offset = (off - RAT_ENT_BASE) % RAT_ENT_STRIDE;
     assert(entry < TI_RAT_NUM_ENTRIES);
-    qemu_log("TI-RAT: Reading Entry %i at offset %i (offset: 0x%"PRIx64")\n", entry, rel_offset, off);
+    trace_rat_read_entry(entry, rel_offset, off);
 
     switch(rel_offset) {
     case RAT_REG_CTRL:

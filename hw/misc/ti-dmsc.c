@@ -534,9 +534,6 @@ static void ti_dmsc_handle_one(TIDmscState *s,
     TISciMsgHdr hdr = { 0 };
     memcpy(&hdr, words, MIN(sizeof(hdr), nwords * sizeof(uint32_t)));
 
-    qemu_log("ti-dmsc: %s, RX thread=%u type=0x%04x host=%u seq=%u flags=0x%08x words=%zu\n", ti_dmsc_message_name_from_id(hdr.type),
-             thread_id, hdr.type, hdr.host, hdr.seq, hdr.flags, nwords);
-
     if (hdr.type < ARRAY_SIZE(s->msg_handler) && s->msg_handler[hdr.type]) {
         s->msg_handler[hdr.type](s, &hdr, thread_id, words, nwords);
         return;
@@ -589,9 +586,8 @@ static void ti_dmsc_handle_set_freq(TIDmscState *s, TISciMsgHdr *hdr,
                                     uint16_t thread_id, const uint32_t *words,
                                     size_t nwords)
 {
-        struct TisciMsgSetFreqReq *req = (struct TisciMsgSetFreqReq *)words;
         TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);;
-        qemu_log("ti-dmsc: %s received from host=%u, %s, dev_id is %i, %s, clk: %i, clk32: %i, freq = %"PRIu64"\n", ti_dmsc_message_name_from_id(hdr->type), hdr->host, ti_dmsc_host_name_from_id(hdr->host), req->device, ti_dmsc_device_name_from_id(req->device), req->clk, req->clk32, req->target_freq_hz);
+
         if (!ti_sec_proxy_push_msg(s->sec_proxy, s->tx_thread_id, (uint32_t *)&resp, sizeof(resp))) {
                 qemu_log_mask(LOG_GUEST_ERROR,
                           "ti-dmsc: Failed to push SET_FREQ response into sec-proxy thread=%u\n",
@@ -717,9 +713,6 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     
     ti_sec_proxy_register_msg_cb(s->sec_proxy, s->rx_thread_id,
                                  ti_dmsc_sec_proxy_cb, s);
-
-    qemu_log("ti-dmsc: realized, rx_thread=%u tx_thread=%u msg_words=%u\n",
-             s->rx_thread_id, s->tx_thread_id, s->msg_words);
 }
 
 static void ti_dmsc_init(Object *obj)

@@ -9,13 +9,14 @@
  * See the COPYING file in the top-level directory.
  *
  */
-#include "hw/misc/ti-sec-proxy.h"
 #include "qemu/osdep.h"
 #include "hw/arm/ti-am64x.h"
 #include "hw/misc/unimp.h"
 #include "hw/or-irq.h"
 #include "hw/qdev-clock.h"
 #include "qapi/error.h"
+#include "hw/char/ti-am64-uart.h"
+#include "hw/misc/ti-sec-proxy.h"
 
 #include "qemu/units.h"
 #include "system/address-spaces.h"
@@ -46,6 +47,10 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "rat", &s->rat, TYPE_TI_RAT);
   object_initialize_child(obj, "sec-proxy", &s->sec_proxy, TYPE_TI_SEC_PROXY);
   object_initialize_child(obj, "dmsc", &s->dmsc, TYPE_TI_DMSC);
+
+  for (int i = 0; i < TI_AM64X_MCU_UART_NUM; i++) {
+      object_initialize_child(obj, "mcu-uart[*]", &s->mcu_uart[i], TYPE_AM64_UART);
+  }
 
   s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
   s->refclk = qdev_init_clock_in(DEVICE(s), "refclk", NULL, NULL, 0);
@@ -663,10 +668,10 @@ static void ti_am64_create_mcu_unimplemented(TIAM64xState *s)
                                       0x0100);
   create_unimplemented_device_in_root(&s->soc_root, "MCU_I2C1_CFG", 0x04910000,
                                       0x0100);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_UART0", 0x04A00000,
-                                      0x0200);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_UART1", 0x04A10000,
-                                      0x0200);
+  /* create_unimplemented_device_in_root(&s->soc_root, "MCU_UART0", 0x04A00000, */
+  /*                                     0x0200); */
+  /* create_unimplemented_device_in_root(&s->soc_root, "MCU_UART1", 0x04A10000, */
+  /*                                     0x0200); */
   create_unimplemented_device_in_root(&s->soc_root, "MCU_MCSPI0_CFG",
                                       0x04B00000, 0x0400);
   create_unimplemented_device_in_root(&s->soc_root, "MCU_MCSPI1_CFG",
@@ -687,6 +692,19 @@ static void ti_am64_create_mcu_unimplemented(TIAM64xState *s)
                                       0x45B02000, 0x0400);
   create_unimplemented_device_in_root(&s->soc_root, "MCU_ECC_AGGR", 0x44201000,
                                       0x400);  
+}
+
+static bool ti_am64x_uart_realize(TIAM64xState *s, MemoryRegion *memory, AM64Uart *au,
+                             const hwaddr addr, Error **errp)
+{
+    qdev_prop_set_uint8(DEVICE(au), "regshift", 2);
+    qdev_prop_set_uint8(DEVICE(au), "endianness", DEVICE_LITTLE_ENDIAN);
+    if (!sysbus_realize(SYS_BUS_DEVICE(au), errp)) {
+        return false;
+    }
+
+    memory_region_add_subregion(memory, addr, sysbus_mmio_get_region(SYS_BUS_DEVICE(au), 0));
+    return true;
 }
 
 static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
@@ -776,6 +794,24 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   memory_region_add_subregion(&s->soc_root, MAIN_SEC_PROXY_RT_ADDRESS, sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 2));
 
   memory_region_add_subregion(&s->soc_root, MAIN_SEC_PROXY_TARGET_ADDRESS, sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 3));
+
+  struct ti_am64_uart_config {
+        hwaddr base_addr;
+        int irq_num;
+  } mcu_uart_configs[TI_AM64X_MCU_UART_NUM] = {
+      { .base_addr = 0x04A00000, .irq_num = 24 }, /* MCU_UART0 */
+      { .base_addr = 0x04A10000, .irq_num = 25 }, /* MCU_UART1 */
+  };
+
+  /* UARTs */
+  for (int i = 0; i < TI_AM64X_MCU_UART_NUM; i++) {
+      struct ti_am64_uart_config *cfg = &mcu_uart_configs[i];
+      if (!ti_am64x_uart_realize(s, &s->soc_root, &s->mcu_uart[i],
+                                   cfg->base_addr, errp)) {
+          return;
+      }
+      sysbus_connect_irq(SYS_BUS_DEVICE(&s->mcu_uart[i]), 0, qdev_get_gpio_in(DEVICE(&s->armv7m), cfg->irq_num));
+  }
 
   ti_am64_create_mcu_unimplemented(s);
   ti_am64_create_main_unimplemented(s);

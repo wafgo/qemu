@@ -434,7 +434,8 @@ config TI_AM64X
     select ARM_V7M
     select TI_DMSC
     select TI_RAT
-    select TI_SEC_PROXY 
+    select TI_SEC_PROXY
+    select AM64_UART
 
 config XLNX_ZYNQMP_ARM
     bool

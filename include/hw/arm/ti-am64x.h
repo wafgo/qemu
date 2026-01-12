@@ -21,10 +21,13 @@
 #include "hw/misc/ti-rat.h"
 #include "hw/misc/ti-sec-proxy.h"
 #include "hw/misc/ti-dmsc.h"
+#include "hw/char/ti-am64-uart.h"
 
 #define TYPE_TI_AM64X "ti-am64x"
 OBJECT_DECLARE_SIMPLE_TYPE(TIAM64xState, TI_AM64X)
 
+#define TI_AM64X_MCU_UART_NUM 2
+    
 struct TIAM64xState {
     SysBusDevice parent_obj;
     ARMv7MState armv7m;
@@ -38,6 +41,7 @@ struct TIAM64xState {
     TIRATState rat;
     TISecProxyState sec_proxy;
     TIDmscState dmsc;
+    AM64Uart mcu_uart[TI_AM64X_MCU_UART_NUM];
 };
 
 #endif

@@ -19,6 +19,7 @@
 #include "qemu/log.h"
 #include "qapi/error.h"
 #include <stdint.h>
+#include "trace.h"
 
 #define SEC_PROXY_MAX_MSG (16)
 
@@ -140,7 +141,7 @@ size_t ti_sec_proxy_push_msg(TISecProxyState *sp,
 
     struct TISecProxyThreadInfo *ti = &sp->thread_info[thread_id];
     memcpy(&ti->current_message[1], words, nbytes);
-    qemu_hexdump(stderr, "msg response:", ti->current_message, 64);
+    /* qemu_hexdump(stderr, "msg response:", ti->current_message, 64); */
     ti->num_messages++;
     return ti->num_messages;
 }
@@ -225,14 +226,11 @@ static uint64_t ti_sec_proxy_read_scfg(void *opaque, hwaddr addr,
                                        unsigned size)
 {
     if (addr <= 0x10) {
-        qemu_log("ti-sec-proxy: read from SCFG addr 0x%" PRIx64 "\n", addr);
         return 0;
-
     }
     int thread_num = addr / 0x1000;
     int reg = (addr % 0x1000) / 4;
-
-    qemu_log("ti-sec-proxy: THREAD: %s, REG: %i. read from SCFG addr 0x%" PRIx64 "\n", ti_sec_proxy_get_thread_channel_name(thread_num), reg, addr);
+    trace_ti_sec_proxy_read_scfg(ti_sec_proxy_get_thread_channel_name(thread_num), reg, addr);
     return 0;
 }
 
@@ -240,15 +238,13 @@ static void ti_sec_proxy_write_scfg(void *opaque, hwaddr addr, uint64_t value,
                                       unsigned size)
 {
     if (addr <= 0x10) {
-        qemu_log("ti-sec-proxy: write to SCFG addr 0x%" PRIx64 " value 0x%" PRIx64 "\n", addr, value);
         return;
     }
 
     int thread_num = addr / 0x1000;
     int reg = (addr % 0x1000) / 4;
 
-    qemu_log("ti-sec-proxy: THREAD: %s, REG: %i. write to SCFG addr 0x%" PRIx64
-             " value 0x%" PRIx64 "\n", ti_sec_proxy_get_thread_channel_name(thread_num), reg, addr, value);
+    trace_ti_sec_proxy_write_scfg(ti_sec_proxy_get_thread_channel_name(thread_num), reg, addr, value);
 }
 
 static const MemoryRegionOps ti_sec_proxy_scfg_ops = {
@@ -268,7 +264,6 @@ static uint64_t ti_sec_proxy_read_rt(void *opaque, hwaddr addr,
     int thread_num = addr / 0x1000;
     hwaddr off = addr % 0x1000;
 
-    int reg  = off >> 2;
     int byte = off & 0x3;
 
     struct TISecProxyThreadInfo *tinfo = &s->thread_info[thread_num];
@@ -290,58 +285,11 @@ static uint64_t ti_sec_proxy_read_rt(void *opaque, hwaddr addr,
         ret = 0;
     }
 
-    qemu_log(
-        "ti-sec-proxy: THREAD: %s, REG: %i, BYTE: %i, size=%u "
-        "read from RT addr 0x%" PRIx64 " -> 0x%" PRIx64 "\n",
-        ti_sec_proxy_get_thread_channel_name(thread_num),
-        reg, byte, size, addr, ret
-    );
-
     return ret;
 }
 
 static void ti_sec_proxy_write_rt(void *opaque, hwaddr addr,
-                                  uint64_t value, unsigned size)
-{
-    /* TISecProxyState *s = opaque; */
-    int thread_num = addr / 0x1000;
-    hwaddr off = addr % 0x1000;
-
-    int reg  = off >> 2;
-    int byte = off & 0x3;
-
-    /* uint32_t v = (uint32_t)value; */
-
-    qemu_log(
-        "ti-sec-proxy: THREAD: %s, REG: %i, BYTE: %i, size=%u "
-        "write to RT addr 0x%" PRIx64 " value 0x%" PRIx64 "\n",
-        ti_sec_proxy_get_thread_channel_name(thread_num),
-        reg, byte, size, addr, value
-    );
-
-    /*
-     * If registers are writeable, you MUST back them with storage.
-     * Pseudocode example:
-     *
-     * uint32_t *reg_storage = &s->thread_info[thread_num].regs[reg];
-     */
-
-#if 0
-    uint32_t cur = *reg_storage;
-
-    if (size == 1) {
-        uint32_t mask = 0xffu << (8 * byte);
-        cur = (cur & ~mask) | ((v & 0xffu) << (8 * byte));
-    } else if (size == 2) {
-        uint32_t mask = 0xffffu << (8 * (byte & ~1));
-        cur = (cur & ~mask) | ((v & 0xffffu) << (8 * (byte & ~1)));
-    } else if (size == 4) {
-        cur = v;
-    }
-
-    *reg_storage = cur;
-#endif
-}
+                                  uint64_t value, unsigned size) {}
 
 static const MemoryRegionOps ti_sec_proxy_rt_ops = {
     .read = ti_sec_proxy_read_rt,
@@ -387,17 +335,10 @@ static uint64_t ti_sec_proxy_read_target(void *opaque, hwaddr addr,
 
     /* For inbound threads reset the message counter */
     if (!tinfo->is_outbound && reg == SEC_PROXY_MAX_MSG - 1) {
-        qemu_log("ti-sec-proxy: THREAD: %s completed read message %i. Resetting num_messages\n",
-                 ti_sec_proxy_get_thread_channel_name(thread_num),
+        trace_ti_sec_proxy_complete_read(ti_sec_proxy_get_thread_channel_name(thread_num),
                  tinfo->num_messages);
         tinfo->num_messages = 0;
     }
-    
-    qemu_log("ti-sec-proxy: THREAD: %s, REG: %i, BYTE: %i, size=%u "
-             "read from TARGET addr 0x%" PRIx64 " -> 0x%" PRIx64 "\n",
-             ti_sec_proxy_get_thread_channel_name(thread_num),
-             reg, byte, size, addr, ret);
-
     return ret;
 }
 
@@ -414,10 +355,6 @@ static void ti_sec_proxy_write_target(void *opaque, hwaddr addr, uint64_t value,
     struct TISecProxyThreadInfo *tinfo = &s->thread_info[thread_num];
 
     if (reg >= 16) {
-        qemu_log("ti-sec-proxy: THREAD: %s, REG: %i, BYTE: %i, size=%u "
-                 "write to TARGET addr 0x%" PRIx64 " value 0x%" PRIx64 " IGNORED\n",
-                 ti_sec_proxy_get_thread_channel_name(thread_num),
-                 reg, byte, size, addr, value);
         return;
     }
 
@@ -437,11 +374,6 @@ static void ti_sec_proxy_write_target(void *opaque, hwaddr addr, uint64_t value,
     } else if (size == 4) {
         cur = v32;
     } else {
-        /* Defensive: ignore unknown sizes */
-        qemu_log("ti-sec-proxy: THREAD: %s, REG: %i, BYTE: %i, size=%u "
-                 "write to TARGET addr 0x%" PRIx64 " value 0x%" PRIx64 " INVALID-SIZE IGNORED\n",
-                 ti_sec_proxy_get_thread_channel_name(thread_num),
-                 reg, byte, size, addr, value);
         return;
     }
 
@@ -452,23 +384,14 @@ static void ti_sec_proxy_write_target(void *opaque, hwaddr addr, uint64_t value,
      * parts of the last word. If you want "only on full word write", gate on size==4.
      */
     if (reg == SEC_PROXY_MAX_MSG - 1) {
-        qemu_log("ti-sec-proxy: THREAD: %s completed message %i\n",
-                 ti_sec_proxy_get_thread_channel_name(thread_num),
+        trace_ti_sec_proxy_complete_write(ti_sec_proxy_get_thread_channel_name(thread_num),
                  tinfo->num_messages);
 
         if (tinfo->cb) {
-            qemu_log("ti-sec-proxy: calling callback for thread %s\n",
-                     ti_sec_proxy_get_thread_channel_name(thread_num));
+            trace_ti_sec_proxy_announce_callback(ti_sec_proxy_get_thread_channel_name(thread_num));
             tinfo->cb(tinfo->cb_opaque, thread_num, &tinfo->current_message[1], SEC_PROXY_MAX_MSG);
         }
     }
-
-    qemu_hexdump(stderr, "msg:", tinfo->current_message, 64);
-
-    qemu_log("ti-sec-proxy: THREAD: %s, REG: %i, BYTE: %i, size=%u "
-             "write to TARGET addr 0x%" PRIx64 " value 0x%" PRIx64 " (stored 0x%08x)\n",
-             ti_sec_proxy_get_thread_channel_name(thread_num),
-             reg, byte, size, addr, value, cur);
 }
 
 static const MemoryRegionOps ti_sec_proxy_target_ops = {
@@ -491,7 +414,7 @@ static void ti_sec_proxy_init(Object *obj)
                               ARRAY_SIZE(sec_proxy_mmrs_regs_info),
                               s->regs_info, s->regs,
                               &ti_sec_proxy_mmr_ops,
-                              true,
+                              false,
                               0x100);
     sysbus_init_mmio(sbd, &s->reg_array->mem);
 
