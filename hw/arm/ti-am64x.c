@@ -10,13 +10,17 @@
  *
  */
 #include "qemu/osdep.h"
+#include "hw/boards.h"
 #include "hw/arm/ti-am64x.h"
 #include "hw/misc/unimp.h"
 #include "hw/or-irq.h"
 #include "hw/qdev-clock.h"
+#include "hw/qdev-properties.h"
+#include "hw/arm/bsa.h"
 #include "qapi/error.h"
 #include "hw/char/ti-am64-uart.h"
 #include "hw/misc/ti-sec-proxy.h"
+#include "hw/intc/arm_gic.h"
 
 #include "qemu/units.h"
 #include "system/address-spaces.h"
@@ -32,6 +36,10 @@
 #define MAIN_SEC_PROXY_TARGET_ADDRESS   0x4D000000
 #define MAIN_MAILBOX_BASE_ADDRESS 0x029000000ULL
 #define MAIN_MAILBOX_STRIDE 0x00010000ULL
+#define MAIN_RAM_BASE_ADDRESS 0x80000000ULL
+/* AM64 TRM: GICSS0_GIC at 0x001800000 (1MB window). */
+#define MAIN_GIC_DIST_ADDRESS 0x001800000ULL
+#define MAIN_GIC_CPU_ADDRESS  0x001810000ULL
 
 #define MCU_IRAM_SIZE (192 * 1024)
 #define MCU_IRAM_BASE_ADDRESS 0x00000000
@@ -46,9 +54,15 @@ static void ti_am64x_initfn(Object *obj) {
   TIAM64xState *s = TI_AM64X(obj);
 
   object_initialize_child(obj, "armv7m", &s->armv7m, TYPE_ARMV7M);
+  object_initialize_child(obj, "gic", &s->gic, TYPE_ARM_GIC);
   object_initialize_child(obj, "rat", &s->rat, TYPE_TI_RAT);
   object_initialize_child(obj, "sec-proxy", &s->sec_proxy, TYPE_TI_SEC_PROXY);
   object_initialize_child(obj, "dmsc", &s->dmsc, TYPE_TI_DMSC);
+
+  for (int i = 0; i < TI_AM64X_A53_NUM; i++) {
+      object_initialize_child(obj, "a53[*]", &s->a53[i],
+                              ARM_CPU_TYPE_NAME("cortex-a53"));
+  }
 
   for (int i = 0; i < TI_AM64X_MAILBOX_NUM; i++) {
       object_initialize_child(obj, "mailbox[*]", &s->mailbox[i], TYPE_TI_MAILBOX);
@@ -60,6 +74,9 @@ static void ti_am64x_initfn(Object *obj) {
 
   s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
   s->refclk = qdev_init_clock_in(DEVICE(s), "refclk", NULL, NULL, 0);
+  s->main_ram_base = MAIN_RAM_BASE_ADDRESS;
+  s->main_ram_size = 0;
+  s->a53_cpus = TI_AM64X_A53_NUM;
 }
 
 static void create_unimplemented_device_in_root(MemoryRegion *root,
@@ -77,11 +94,11 @@ static void create_unimplemented_device_in_root(MemoryRegion *root,
   memory_region_add_subregion(root, base, mr);
 }
 
-static void ti_am64_create_main_unimplemented(TIAM64xState *s)
+static void ti_am64_create_main_unimplemented(MemoryRegion *root)
 {
 /* === MAIN MMIO / Register blocks (<= 256KB) === */
 #define ADD_MAIN_UNIMP(_name, _base, _size)                             \
-    create_unimplemented_device_in_root(&s->soc_root, (_name), (hwaddr)(_base), (hwaddr)(_size))
+    create_unimplemented_device_in_root(root, (_name), (hwaddr)(_base), (hwaddr)(_size))
 
 /* 0x0000_xxxx */
     ADD_MAIN_UNIMP("PSRAMECC0_RAM",                      0x000000000ULL, 0x00000400ULL); /* 1 KB */
@@ -180,10 +197,7 @@ static void ti_am64_create_main_unimplemented(TIAM64xState *s)
 
 /* SERDES/PCIe small blocks / DDR ctrl / USB small blocks / MMC / FSS */
     ADD_MAIN_UNIMP("SERDES_10G0",                          0x00F000000ULL, 0x00010000ULL); /* 64 KB */
-    ADD_MAIN_UNIMP("PCIE0_CORE_USER_CFG_USER_CFG",         0x00F100000ULL, 0x00000400ULL);
-    ADD_MAIN_UNIMP("PCIE0_CORE_VMAP_OB_MMRS",              0x00F101000ULL, 0x00001000ULL); /* 4 KB */
-    ADD_MAIN_UNIMP("PCIE0_CORE_PCIE_INTD_CFG_INTD_CFG",    0x00F102000ULL, 0x00001000ULL); /* 4 KB */
-    ADD_MAIN_UNIMP("PCIE0_CORE_CPTS_CFG_CPTS_VBUSP",       0x00F103000ULL, 0x00000400ULL);
+    /* PCIe core config space is used for ECAM; avoid shadowing it here. */
     ADD_MAIN_UNIMP("DDR16SS0_SS_CFG",                      0x00F300000ULL, 0x00000200ULL); /* 512 B */
     ADD_MAIN_UNIMP("DDR16SS0_CTL_CFG",                     0x00F308000ULL, 0x00008000ULL); /* 32 KB */
     ADD_MAIN_UNIMP("USB0_MMR_MMRVBP_USBSS_CMN0",           0x00F900000ULL, 0x00000100ULL);
@@ -352,13 +366,11 @@ static void ti_am64_create_main_unimplemented(TIAM64xState *s)
 
 /* === Large MAIN regions / windows (MB..GB) === */
 
-/* GIC regions */
-    ADD_MAIN_UNIMP("GICSS0_GIC_TRANSLATER0",               0x001000000ULL, 0x00400000ULL); /* 4 MB */
-    ADD_MAIN_UNIMP("GICSS0_GIC0",                          0x001800000ULL, 0x00100000ULL); /* 1 MB */
+/* GIC regions are mapped by the GIC device; do not shadow them here. */
 
 /* CPSW / PCIe DBN */
     ADD_MAIN_UNIMP("CPSW0_NUSS0",                          0x008000000ULL, 0x00200000ULL); /* 2 MB */
-    ADD_MAIN_UNIMP("PCIE0_CORE_DBN_CFG_PCIE_CORE0",        0x00D000000ULL, 0x00800000ULL); /* 8 MB */
+    /* PCIE0_CORE_DBN_CFG_PCIE_CORE0 overlaps ECAM; do not map as unimplemented. */
 
 /* USB VBP core addr map (256 KB) — still window-ish */
     ADD_MAIN_UNIMP("USB0_VBP2APB_WRAP_CONTROLLER_VBP_CORE_ADDR_MAP",
@@ -627,67 +639,63 @@ static void ti_am64_create_main_unimplemented(TIAM64xState *s)
 
 }
 
-static void ti_am64_create_mcu_unimplemented(TIAM64xState *s)
+static void ti_am64_create_mcu_unimplemented(MemoryRegion *root)
 {
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_PSC0", 0x04000000,
+  create_unimplemented_device_in_root(root, "MCU_PSC0", 0x04000000,
                                       0x1000);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_PLLCTRL0", 0x04020000,
+  create_unimplemented_device_in_root(root, "MCU_PLLCTRL0", 0x04020000,
                                       0x200);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_PLL0_CFG", 0x04040000,
+  create_unimplemented_device_in_root(root, "MCU_PLL0_CFG", 0x04040000,
                                       0x1000);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_PADCFG_CTRL0_CFG0",
+  create_unimplemented_device_in_root(root, "MCU_PADCFG_CTRL0_CFG0",
                                       0x04080000, 0x8000);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_ESM0_CFG", 0x04100000,
+  create_unimplemented_device_in_root(root, "MCU_ESM0_CFG", 0x04100000,
                                       0x1000);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_GPIO0", 0x04201000,
+  create_unimplemented_device_in_root(root, "MCU_GPIO0", 0x04201000,
                                       0x100);
-  create_unimplemented_device_in_root(
-      &s->soc_root, "MCU_GPIOMUX_INTROUTER0_CFG", 0x04210000, 0x200);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_TIMEOUT0_CFG",
+  create_unimplemented_device_in_root(root, "MCU_GPIOMUX_INTROUTER0_CFG",
+                                      0x04210000, 0x200);
+  create_unimplemented_device_in_root(root, "MCU_TIMEOUT0_CFG",
                                       0x04300000, 0x400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_CTRL_MMR0_CFG0",
+  create_unimplemented_device_in_root(root, "MCU_CTRL_MMR0_CFG0",
                                       0x04500000, 0x20000);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_ECC_AGGR0_ECC_AGGR0",
+  create_unimplemented_device_in_root(root, "MCU_ECC_AGGR0_ECC_AGGR0",
                                       0x04700000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_CBASS0_ERR0",
+  create_unimplemented_device_in_root(root, "MCU_CBASS0_ERR0",
                                       0x04720000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_TIMER0_CFG",
+  create_unimplemented_device_in_root(root, "MCU_TIMER0_CFG",
                                       0x04800000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_TIMER1_CFG",
+  create_unimplemented_device_in_root(root, "MCU_TIMER1_CFG",
                                       0x04810000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_TIMER2_CFG",
+  create_unimplemented_device_in_root(root, "MCU_TIMER2_CFG",
                                       0x04820000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_TIMER3_CFG",
+  create_unimplemented_device_in_root(root, "MCU_TIMER3_CFG",
                                       0x04830000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_RTI0_CFG", 0x04880000,
+  create_unimplemented_device_in_root(root, "MCU_RTI0_CFG", 0x04880000,
                                       0x0100);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_I2C0_CFG", 0x04900000,
+  create_unimplemented_device_in_root(root, "MCU_I2C0_CFG", 0x04900000,
                                       0x0100);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_I2C1_CFG", 0x04910000,
+  create_unimplemented_device_in_root(root, "MCU_I2C1_CFG", 0x04910000,
                                       0x0100);
   /* create_unimplemented_device_in_root(&s->soc_root, "MCU_UART0", 0x04A00000, */
   /*                                     0x0200); */
   /* create_unimplemented_device_in_root(&s->soc_root, "MCU_UART1", 0x04A10000, */
   /*                                     0x0200); */
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_MCSPI0_CFG",
+  create_unimplemented_device_in_root(root, "MCU_MCSPI0_CFG",
                                       0x04B00000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_MCSPI1_CFG",
+  create_unimplemented_device_in_root(root, "MCU_MCSPI1_CFG",
                                       0x04B10000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_DCC0", 0x04C00000,
+  create_unimplemented_device_in_root(root, "MCU_DCC0", 0x04C00000,
                                       0x0040);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_MCRC64_0_REGS",
+  create_unimplemented_device_in_root(root, "MCU_MCRC64_0_REGS",
                                       0x04D00000, 0x1000);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_M4FSS0_IRAM",
-                                      0x05000000, 0x40000);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_M4FSS0_DRAM",
-                                      0x05040000, 0x10000);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_M4FSS0_RAT",
+  create_unimplemented_device_in_root(root, "MCU_M4FSS0_RAT",
                                       0x05FF0000, 0x1000);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_M4FSS0_ECC_AGGR0",
+  create_unimplemented_device_in_root(root, "MCU_M4FSS0_ECC_AGGR0",
                                       0x05FF1000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_CBASS0_GLB0",
+  create_unimplemented_device_in_root(root, "MCU_CBASS0_GLB0",
                                       0x45B02000, 0x0400);
-  create_unimplemented_device_in_root(&s->soc_root, "MCU_ECC_AGGR", 0x44201000,
+  create_unimplemented_device_in_root(root, "MCU_ECC_AGGR", 0x44201000,
                                       0x400);  
 }
 
@@ -710,6 +718,8 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   TIAM64xState *s = TI_AM64X(dev_soc);
   Error *err = NULL;
   DeviceState *armv7m;
+  MachineState *ms = MACHINE(qdev_get_machine());
+  MemoryRegion *sysmem = get_system_memory();
 
   if (clock_has_source(s->refclk)) {
     error_setg(errp, "refclk clock must not be wired up by the board code");
@@ -740,21 +750,98 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
     return;
   }
 
+  if (s->main_ram_size == 0) {
+    s->main_ram_size = ms->ram_size;
+  }
+  if (s->main_ram_base == 0) {
+    s->main_ram_base = MAIN_RAM_BASE_ADDRESS;
+  }
+  if (s->a53_cpus == 0) {
+    s->a53_cpus = TI_AM64X_A53_NUM;
+  }
+  if (s->a53_cpus > TI_AM64X_A53_NUM) {
+    error_setg(errp, "a53-cpus must be between 1 and %u", TI_AM64X_A53_NUM);
+    return;
+  }
+
   /* MCU root: M4 View (4GiB AddressSpace) */
   memory_region_init(&s->mcu_root, OBJECT(s), "am64x.mcu-root", UINT64_MAX);
-  /* SOC root: Main Interconnect View */
-  memory_region_init(&s->soc_root, OBJECT(s), "am64x.soc-root", UINT64_MAX);
-  address_space_init(&s->soc_as, &s->soc_root, "am64x.soc-as");
 
   memory_region_add_subregion(&s->mcu_root, MCU_IRAM_BASE_ADDRESS,
                               &s->mcu_iram);
   memory_region_add_subregion(&s->mcu_root, MCU_DRAM_BASE_ADDRESS,
                               &s->mcu_dram);
+  memory_region_init_alias(&s->mcu_iram_sysmem, OBJECT(s),
+                           "am64x.mcu.iram.sysmem", &s->mcu_iram, 0,
+                           MCU_IRAM_SIZE);
+  memory_region_init_alias(&s->mcu_dram_sysmem, OBJECT(s),
+                           "am64x.mcu.dram.sysmem", &s->mcu_dram, 0,
+                           MCU_DRAM_SIZE);
+  memory_region_add_subregion(sysmem, 0x05000000, &s->mcu_iram_sysmem);
+  memory_region_add_subregion(sysmem, 0x05040000, &s->mcu_dram_sysmem);
 
   /* FIXME: This is a hack to allow loading resource table via elf*/
   memory_region_add_subregion(&s->mcu_root, 0xa4100000,
                               &s->mcu_ddr);
   
+  for (int i = 0; i < s->a53_cpus; i++) {
+    CPUState *cs = CPU(&s->a53[i]);
+    if (!object_property_set_int(OBJECT(&s->a53[i]), "mp-affinity", i, errp)) {
+      return;
+    }
+    cs->cpu_index = i;
+    qdev_prop_set_bit(DEVICE(&s->a53[i]), "start-powered-off", i > 0);
+    qdev_prop_set_bit(DEVICE(&s->a53[i]), "has_el3", true);
+    qdev_prop_set_bit(DEVICE(&s->a53[i]), "has_el2", true);
+    if (!qdev_realize(DEVICE(&s->a53[i]), NULL, errp)) {
+      return;
+    }
+  }
+
+  {
+    DeviceState *gicdev = DEVICE(&s->gic);
+    SysBusDevice *gicsbd = SYS_BUS_DEVICE(&s->gic);
+
+    qdev_prop_set_uint32(gicdev, "revision", 2);
+    qdev_prop_set_uint32(gicdev, "num-cpu", s->a53_cpus);
+    qdev_prop_set_uint32(gicdev, "num-irq",
+                         TI_AM64X_GIC_NUM_SPI + GIC_INTERNAL);
+    qdev_prop_set_bit(gicdev, "has-security-extensions", false);
+    qdev_prop_set_bit(gicdev, "has-virtualization-extensions", false);
+
+    if (!sysbus_realize(gicsbd, errp)) {
+      return;
+    }
+    sysbus_mmio_map(gicsbd, 0, MAIN_GIC_DIST_ADDRESS);
+    sysbus_mmio_map(gicsbd, 1, MAIN_GIC_CPU_ADDRESS);
+
+    for (int i = 0; i < s->a53_cpus; i++) {
+      DeviceState *cpudev = DEVICE(&s->a53[i]);
+      int intidbase = TI_AM64X_GIC_NUM_SPI + i * GIC_INTERNAL;
+      const int timer_irq[] = {
+          [GTIMER_PHYS] = ARCH_TIMER_NS_EL1_IRQ,
+          [GTIMER_VIRT] = ARCH_TIMER_VIRT_IRQ,
+          [GTIMER_HYP]  = ARCH_TIMER_NS_EL2_IRQ,
+          [GTIMER_SEC]  = ARCH_TIMER_S_EL1_IRQ,
+      };
+
+      for (int j = 0; j < ARRAY_SIZE(timer_irq); j++) {
+        qdev_connect_gpio_out(cpudev, j,
+                              qdev_get_gpio_in(gicdev,
+                                               intidbase + timer_irq[j]));
+      }
+
+      sysbus_connect_irq(gicsbd, i,
+                         qdev_get_gpio_in(cpudev, ARM_CPU_IRQ));
+      sysbus_connect_irq(gicsbd, i + s->a53_cpus,
+                         qdev_get_gpio_in(cpudev, ARM_CPU_FIQ));
+      sysbus_connect_irq(gicsbd, i + (2 * s->a53_cpus),
+                         qdev_get_gpio_in(cpudev, ARM_CPU_VIRQ));
+      sysbus_connect_irq(gicsbd, i + (3 * s->a53_cpus),
+                         qdev_get_gpio_in(cpudev, ARM_CPU_VFIQ));
+    }
+  }
+
 
   armv7m = DEVICE(&s->armv7m);
   qdev_prop_set_uint32(armv7m, "num-irq", 64);
@@ -773,7 +860,7 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
                            &error_abort);
 
   object_property_set_link(OBJECT(&s->rat), "target-root",
-                           OBJECT(&s->soc_root), &error_abort);
+                           OBJECT(sysmem), &error_abort);
 
   /* now realize + map RAT config regs */
   if (!sysbus_realize(SYS_BUS_DEVICE(&s->rat), errp)) {
@@ -784,22 +871,31 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   if (!sysbus_realize(SYS_BUS_DEVICE(&s->sec_proxy), errp)) {
     return;
   }
+  sysbus_connect_irq(SYS_BUS_DEVICE(&s->sec_proxy), 0,
+                     qdev_get_gpio_in(DEVICE(&s->gic), 34));
 
   object_property_set_link(OBJECT(&s->dmsc),
                          "sec-proxy",
                          OBJECT(&s->sec_proxy),
                          &error_abort);
 
+  qdev_prop_set_uint16(DEVICE(&s->dmsc), "rx-thread", 13);
+  qdev_prop_set_uint16(DEVICE(&s->dmsc), "tx-thread", 12);
+
   if (!qdev_realize(DEVICE(&s->dmsc), NULL, errp)) {
     return;
   }
-  memory_region_add_subregion(&s->soc_root, MAIN_SEC_PROXY_MMRS_ADDRESS, sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 0));
+  memory_region_add_subregion(sysmem, MAIN_SEC_PROXY_MMRS_ADDRESS,
+                              sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 0));
 
-  memory_region_add_subregion(&s->soc_root, MAIN_SEC_PROXY_SCFG_ADDRESS, sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 1));
+  memory_region_add_subregion(sysmem, MAIN_SEC_PROXY_SCFG_ADDRESS,
+                              sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 1));
 
-  memory_region_add_subregion(&s->soc_root, MAIN_SEC_PROXY_RT_ADDRESS, sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 2));
+  memory_region_add_subregion(sysmem, MAIN_SEC_PROXY_RT_ADDRESS,
+                              sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 2));
 
-  memory_region_add_subregion(&s->soc_root, MAIN_SEC_PROXY_TARGET_ADDRESS, sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 3));
+  memory_region_add_subregion(sysmem, MAIN_SEC_PROXY_TARGET_ADDRESS,
+                              sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 3));
 
   for (int i = 0; i < TI_AM64X_MAILBOX_NUM; i++) {
       hwaddr base = MAIN_MAILBOX_BASE_ADDRESS + (i * MAIN_MAILBOX_STRIDE);
@@ -807,7 +903,7 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
       if (!sysbus_realize(SYS_BUS_DEVICE(&s->mailbox[i]), errp)) {
           return;
       }
-      memory_region_add_subregion(&s->soc_root, base,
+      memory_region_add_subregion(sysmem, base,
                                   sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->mailbox[i]), 0));
   }
   sysbus_connect_irq(SYS_BUS_DEVICE(&s->mailbox[6]), 3,
@@ -826,17 +922,24 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   /* UARTs */
   for (int i = 0; i < TI_AM64X_MCU_UART_NUM; i++) {
       struct ti_am64_uart_config *cfg = &mcu_uart_configs[i];
-      if (!ti_am64x_uart_realize(s, &s->soc_root, &s->mcu_uart[i],
+      if (!ti_am64x_uart_realize(s, sysmem, &s->mcu_uart[i],
                                    cfg->base_addr, errp)) {
           return;
       }
       sysbus_connect_irq(SYS_BUS_DEVICE(&s->mcu_uart[i]), 0, qdev_get_gpio_in(DEVICE(&s->armv7m), cfg->irq_num));
   }
 
-  ti_am64_create_mcu_unimplemented(s);
-  ti_am64_create_main_unimplemented(s);
+  ti_am64_create_mcu_unimplemented(sysmem);
+  ti_am64_create_main_unimplemented(sysmem);
 
 }
+
+static const Property ti_am64x_properties[] = {
+  DEFINE_PROP_UINT64("ram-base", TIAM64xState, main_ram_base,
+                     MAIN_RAM_BASE_ADDRESS),
+  DEFINE_PROP_UINT64("ram-size", TIAM64xState, main_ram_size, 0),
+  DEFINE_PROP_UINT8("a53-cpus", TIAM64xState, a53_cpus, TI_AM64X_A53_NUM),
+};
 
 static void ti_am64x_class_init(ObjectClass *klass, const void *data) {
 
@@ -845,6 +948,7 @@ static void ti_am64x_class_init(ObjectClass *klass, const void *data) {
   dc->realize = ti_am64x_realize;
   /* Reason: Mapped at fixed location on the system bus */
   dc->user_creatable = false;
+  device_class_set_props(dc, ti_am64x_properties);
   /* No vmstate or reset required: device has no internal state */
 }
 

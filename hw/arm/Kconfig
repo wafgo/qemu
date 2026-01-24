@@ -439,6 +439,7 @@ config STM32L4X5_SOC
 config TI_AM64X
     bool
     select ARM_V7M
+    select ARM_GIC
     select TI_MAILBOX
     select TI_RAT
     select AM64_UART

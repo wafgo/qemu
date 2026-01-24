@@ -16,6 +16,8 @@
 #include "qemu/osdep.h"
 #include "system/memory.h"
 #include "hw/arm/armv7m.h"
+#include "cpu.h"
+#include "hw/intc/arm_gic.h"
 #include "hw/clock.h"
 #include "qom/object.h"
 #include "hw/misc/ti-rat.h"
@@ -29,16 +31,20 @@ OBJECT_DECLARE_SIMPLE_TYPE(TIAM64xState, TI_AM64X)
 
 #define TI_AM64X_MCU_UART_NUM 2
 #define TI_AM64X_MAILBOX_NUM 8
+#define TI_AM64X_A53_NUM 2
+#define TI_AM64X_GIC_NUM_SPI 256
     
 struct TIAM64xState {
     SysBusDevice parent_obj;
     ARMv7MState armv7m;
+    ARMCPU a53[TI_AM64X_A53_NUM];
+    GICState gic;
     MemoryRegion mcu_iram;
     MemoryRegion mcu_dram;
     MemoryRegion mcu_ddr;
+    MemoryRegion mcu_iram_sysmem;
+    MemoryRegion mcu_dram_sysmem;
     MemoryRegion mcu_root;
-    MemoryRegion soc_root;
-    AddressSpace soc_as;
     Clock *sysclk;
     Clock *refclk;
     TIRATState rat;
@@ -46,6 +52,9 @@ struct TIAM64xState {
     TIDmscState dmsc;
     TIMailboxState mailbox[TI_AM64X_MAILBOX_NUM];
     AM64Uart mcu_uart[TI_AM64X_MCU_UART_NUM];
+    uint64_t main_ram_base;
+    uint64_t main_ram_size;
+    uint8_t a53_cpus;
 };
 
 #endif
