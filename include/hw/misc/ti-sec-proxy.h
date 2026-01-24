@@ -73,6 +73,7 @@ struct TISecProxyState {
     MemoryRegion iomem_rt;
     MemoryRegion iomem_target_data;
     RegisterInfoArray *reg_array;
+    qemu_irq irq_evt;
     uint32_t regs[RMAX_TI_SEC_PROXY];
     RegisterInfo regs_info[RMAX_TI_SEC_PROXY];
     struct TISecProxyThreadInfo thread_info[SEC_PROXY_THREAD_ID_MAX];

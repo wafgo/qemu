@@ -236,6 +236,7 @@
 #define TISCI_DEV_PBIST2 165U
 #define TISCI_DEV_PBIST3 166U
 #define TISCI_DEV_COMPUTE_CLUSTER0_PBIST_0 167U
+#define TISCI_DEV_ID_MAX 168U
 
 #define TISCI_MSG_FLAG_RESERVED0    BIT(0)
 /**
@@ -291,7 +292,29 @@
 #define TISCI_MSG_PREPARE_SLEEP                 (0x0300U)
 #define TISCI_MSG_ENTER_SLEEP                   (0x0301U)
 
-#define TISCI_MSG_MAX_ID                        (0x03FFU)
+#define TISCI_MSG_PROC_REQUEST		        (0xc000U)
+#define TISCI_MSG_PROC_RELEASE		        (0xc001U)
+#define TISCI_MSG_PROC_HANDOVER	                (0xc005U)
+#define TISCI_MSG_SET_CONFIG		        (0xc100U)
+#define TISCI_MSG_SET_CTRL		        (0xc101U)
+#define TISCI_MSG_GET_STATUS		        (0xc400U)
+
+#define TISCI_MSG_MAX_ID                        (0xc500U)
+
+/** AM64_MAIN_SEC_MMR_MAIN_0: (Cluster 9 Processor 0) */
+#define SCICLIENT_PROCID_A53_CL0_C0 (0x20U)
+/** AM64_MAIN_SEC_MMR_MAIN_0: (Cluster 9 Processor 1) */
+#define SCICLIENT_PROCID_A53_CL0_C1 (0x21U)
+/** AM64_MAIN_SEC_MMR_MAIN_0: (Cluster 0 Processor 0) */
+#define SCICLIENT_PROCID_R5_CL0_C0 (0x01U)
+/** AM64_MAIN_SEC_MMR_MAIN_0: (Cluster 0 Processor 1) */
+#define SCICLIENT_PROCID_R5_CL0_C1 (0x02U)
+/** AM64_MAIN_SEC_MMR_MAIN_0: (Cluster 1 Processor 0) */
+#define SCICLIENT_PROCID_R5_CL1_C0 (0x06U)
+/** AM64_MAIN_SEC_MMR_MAIN_0: (Cluster 1 Processor 1) */
+#define SCICLIENT_PROCID_R5_CL1_C1 (0x07U)
+/*** AM64_MAIN_SEC_MMR_MAIN_0: (Cluster 16 Processor 0) */
+#define SCICLIENT_PROCID_MCU_M4FSS0_C0 (0x18U)
 
 
 #define TYPE_TI_DMSC "ti-dmsc"
@@ -315,6 +338,49 @@ typedef struct TISciMsgHdr {
     uint8_t  seq;
     uint32_t flags;
 } QEMU_PACKED TISciMsgHdr;
+
+struct TiSciMsgReqProcRequest {
+	TISciMsgHdr hdr;
+	uint8_t processor_id;
+} QEMU_PACKED;
+
+struct TiSciMsgReqProcRelease {
+	TISciMsgHdr hdr;
+	uint8_t processor_id;
+} QEMU_PACKED;
+
+struct TisciMsgSetDeviceReq {
+    TISciMsgHdr hdr;
+    uint32_t id;
+    uint8_t state;
+} QEMU_PACKED;
+
+struct TisciMsgSetDeviceResetsReq {
+    TISciMsgHdr hdr;
+    uint32_t id;
+    uint32_t resets;
+} QEMU_PACKED;
+
+
+struct TiSciMsgQueryFwCapsResp {
+     TISciMsgHdr hdr;
+#define MSG_FLAG_CAPS_GENERIC		BIT(0)
+#define MSG_FLAG_CAPS_LPM_DEEP_SLEEP	BIT(1)
+#define MSG_FLAG_CAPS_LPM_MCU_ONLY	BIT(2)
+#define MSG_FLAG_CAPS_LPM_STANDBY	BIT(3)
+#define MSG_FLAG_CAPS_LPM_PARTIAL_IO	BIT(4)
+#define MSG_FLAG_CAPS_LPM_DM_MANAGED	BIT(5)
+/* #define MSG_MASK_CAPS_LPM		GENMASK_ULL(4, 1) */
+	uint64_t fw_caps;
+} QEMU_PACKED;
+
+struct TiSciMsgVersionResp {
+	TISciMsgHdr    hdr;
+	char firmware_description[32];
+	uint16_t firmware_revision;
+	uint8_t abi_major;
+	uint8_t abi_minor;
+} QEMU_PACKED;
 
 struct TisciMsgSetFreqReq {
     TISciMsgHdr    hdr;
@@ -414,6 +480,9 @@ struct TIDmscState {
     QemuMutex lock;
 
     TiDmscMsgHandler msg_handler[TISCI_MSG_MAX_ID];
+
+    uint8_t dev_hw_state[TISCI_DEV_ID_MAX];
+    uint8_t dev_prog_state[TISCI_DEV_ID_MAX];
 
     
     /* Single-slot queue for simplicity (extend to FIFO if needed) */

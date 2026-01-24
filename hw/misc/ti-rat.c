@@ -59,6 +59,7 @@ static void ti_rat_apply_entry(TIRATState *s, TIRATEntry *e)
         trace_rat_disable_region(e->idx);
         if (e->inserted) {
             memory_region_transaction_begin();
+            memory_region_del_subregion(&s->window_container, &e->alias);
             memory_region_set_enabled(&e->alias, false);
             memory_region_transaction_commit();
             e->inserted = false;
@@ -253,7 +254,7 @@ static void ti_rat_realize(DeviceState *dev, Error **errp)
     ti_rat_reset(dev);
 }
 
-static Property ti_rat_props[] = {
+static const Property ti_rat_props[] = {
     DEFINE_PROP_UINT64("window-base", TIRATState, window_base,
                        TI_RAT_WINDOW_BASE),
     DEFINE_PROP_UINT64("window-size", TIRATState, window_size,

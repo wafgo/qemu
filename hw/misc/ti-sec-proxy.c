@@ -11,6 +11,8 @@
  * On TI K3 devices this is used for communication with DMSC firmware.
  */
 
+
+
 #include "qemu/osdep.h"
 #include "qemu/cutils.h"
 #include "hw/misc/ti-sec-proxy.h"
@@ -19,6 +21,7 @@
 #include "qemu/log.h"
 #include "qapi/error.h"
 #include <stdint.h>
+#include "hw/irq.h"
 #include "trace.h"
 
 #define SEC_PROXY_MAX_MSG (16)
@@ -141,6 +144,8 @@ size_t ti_sec_proxy_push_msg(TISecProxyState *sp,
 
     struct TISecProxyThreadInfo *ti = &sp->thread_info[thread_id];
     memcpy(&ti->current_message[1], words, nbytes);
+    qemu_irq_raise(sp->irq_evt);
+
     /* qemu_hexdump(stderr, "msg response:", ti->current_message, 64); */
     ti->num_messages++;
     return ti->num_messages;
@@ -225,13 +230,18 @@ static const MemoryRegionOps ti_sec_proxy_mmr_ops = {
 static uint64_t ti_sec_proxy_read_scfg(void *opaque, hwaddr addr,
                                        unsigned size)
 {
+    TISecProxyState *s = opaque;
     if (addr <= 0x10) {
         return 0;
     }
-    int thread_num = addr / 0x1000;
-    int reg = (addr % 0x1000) / 4;
+    
+    hwaddr thread_rel_addr = addr - 0x10;
+    int thread_num = thread_rel_addr / 0x1000;
+    int reg = (thread_rel_addr % 0x1000) / 4;
+    struct TISecProxyThreadInfo *tinfo = &s->thread_info[thread_num];
+    
     trace_ti_sec_proxy_read_scfg(ti_sec_proxy_get_thread_channel_name(thread_num), reg, addr);
-    return 0;
+    return (tinfo->is_outbound ? 0x0 : 0x80000000);
 }
 
 static void ti_sec_proxy_write_scfg(void *opaque, hwaddr addr, uint64_t value,
@@ -284,7 +294,7 @@ static uint64_t ti_sec_proxy_read_rt(void *opaque, hwaddr addr,
     } else {
         ret = 0;
     }
-
+    trace_ti_sec_proxy_read_rt(ti_sec_proxy_get_thread_channel_name(thread_num), ret, addr);
     return ret;
 }
 
@@ -338,6 +348,7 @@ static uint64_t ti_sec_proxy_read_target(void *opaque, hwaddr addr,
         trace_ti_sec_proxy_complete_read(ti_sec_proxy_get_thread_channel_name(thread_num),
                  tinfo->num_messages);
         tinfo->num_messages = 0;
+        qemu_irq_lower(s->irq_evt);
     }
     return ret;
 }
@@ -386,7 +397,7 @@ static void ti_sec_proxy_write_target(void *opaque, hwaddr addr, uint64_t value,
     if (reg == SEC_PROXY_MAX_MSG - 1) {
         trace_ti_sec_proxy_complete_write(ti_sec_proxy_get_thread_channel_name(thread_num),
                  tinfo->num_messages);
-
+        
         if (tinfo->cb) {
             trace_ti_sec_proxy_announce_callback(ti_sec_proxy_get_thread_channel_name(thread_num));
             tinfo->cb(tinfo->cb_opaque, thread_num, &tinfo->current_message[1], SEC_PROXY_MAX_MSG);
@@ -414,7 +425,7 @@ static void ti_sec_proxy_init(Object *obj)
                               ARRAY_SIZE(sec_proxy_mmrs_regs_info),
                               s->regs_info, s->regs,
                               &ti_sec_proxy_mmr_ops,
-                              false,
+                              true,
                               0x100);
     sysbus_init_mmio(sbd, &s->reg_array->mem);
 
@@ -432,6 +443,8 @@ static void ti_sec_proxy_init(Object *obj)
                           &ti_sec_proxy_target_ops, s,
                           "ti-sec-proxy-target", 0x80000);
     sysbus_init_mmio(sbd, &s->iomem_target_data);
+
+    sysbus_init_irq(sbd, &s->irq_evt);
 }
 
 static const TypeInfo ti_sec_proxy_info = {

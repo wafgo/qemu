@@ -69,6 +69,11 @@ ecc_diag_mem_readb(uint64_t addr, uint32_t ret) "Read diagnostic %"PRId64"= 0x%0
 # empty_slot.c
 empty_slot_write(uint64_t addr, unsigned width, uint64_t value, unsigned size, const char *name) "wr addr:0x%04"PRIx64" data:0x%0*"PRIx64" size %u [%s]"
 
+# ti-mailbox.c
+ti_mailbox_read(uint64_t offset, uint32_t value, unsigned size) "off=0x%" PRIx64 " size=%u val=0x%08x"
+ti_mailbox_write(uint64_t offset, uint32_t value, unsigned size) "off=0x%" PRIx64 " size=%u val=0x%08x"
+ti_mailbox_irq(uint8_t mailbox_id, uint8_t user, int level) "mbox=%u user=%u level=%d"
+
 # slavio_misc.c
 slavio_misc_update_irq_raise(void) "Raise IRQ"
 slavio_misc_update_irq_lower(void) "Lower IRQ"
@@ -416,6 +421,15 @@ dmsc_handle_get_device(const char *type, const char *host_name, const char *devi
 dmsc_handle_get_clock(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
 dmsc_handle_get_clock_parents(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
 dmsc_handle_query_freq(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32, uint64_t target_freq) "%s received from host %s, device %s, clk %u, clk32 %u, target_frequency %"PRIu64
+dmsc_handle_set_device_state(const char *type, const char *host_name, const char *device_name, uint8_t state) "%s received from host %s, device %s, state %u"
+dmsc_set_device_state_start(const char *device_name, int device_id, const char *host_name) "Start requested for device %s (%i) from host %s"
+dmsc_handle_set_device_resets(const char *type, const char *host_name, const char *device_name, uint32_t resets) "%s received from host %s, device %s, resets 0x%08x"
+dmsc_unsupported_message(const char *msg, int type, const char *host, int thread_id) "No handler for message type=%s (%i) from host %s ... (thread id: %i) dropping"
+dmsc_new_message_received(int type, const char *msg, const char *host, int thread_id) "Handling message type=0x%04x (%s) from host=%s, thread=%u"
+dmsc_get_version(const char* msg, const char *host, const char *description) "Get Version received %s from host %s. Description returned %s"
+dmsc_get_fw_caps(const char* msg, const char *host) "Get FW Caps Request received %s from host %s"
+dmsc_start_proc(const char* proc_name, int proc_id, const char *host) "Requested to start Processor %s (%i) from host %s"
+dmsc_stop_proc(const char* proc_name, int proc_id, const char *host) "Requested to stop Processor %s (%i) from host %s"
 
 # ti-rat.c
 rat_enable_region(int idx, uint64_t size, uint64_t source, uint64_t dest) "Enabling RAT Region %u: size 0x%"PRIx64" map 0x%"PRIx64" -> 0x%"PRIx64
@@ -428,4 +442,4 @@ ti_sec_proxy_write_scfg(const char *name, int reg, uint64_t addr, uint64_t value
 ti_sec_proxy_complete_read(const char *name, int num) "thread: %s completed read message %i. Resetting number of messages"
 ti_sec_proxy_complete_write(const char *name, int num) "thread: %s completed write message %i. Resetting number of messages"
 ti_sec_proxy_announce_callback(const char *name) "invoce callback for thread: %s"
-
+ti_sec_proxy_read_rt(const char *name, int reg, uint64_t addr) "thread: %s, reg: %x. read from RT addr 0x%" PRIx64

@@ -30,6 +30,8 @@
 #define MAIN_SEC_PROXY_SCFG_ADDRESS 0x4A400000
 #define MAIN_SEC_PROXY_RT_ADDRESS 0x4A600000
 #define MAIN_SEC_PROXY_TARGET_ADDRESS   0x4D000000
+#define MAIN_MAILBOX_BASE_ADDRESS 0x029000000ULL
+#define MAIN_MAILBOX_STRIDE 0x00010000ULL
 
 #define MCU_IRAM_SIZE (192 * 1024)
 #define MCU_IRAM_BASE_ADDRESS 0x00000000
@@ -47,6 +49,10 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "rat", &s->rat, TYPE_TI_RAT);
   object_initialize_child(obj, "sec-proxy", &s->sec_proxy, TYPE_TI_SEC_PROXY);
   object_initialize_child(obj, "dmsc", &s->dmsc, TYPE_TI_DMSC);
+
+  for (int i = 0; i < TI_AM64X_MAILBOX_NUM; i++) {
+      object_initialize_child(obj, "mailbox[*]", &s->mailbox[i], TYPE_TI_MAILBOX);
+  }
 
   for (int i = 0; i < TI_AM64X_MCU_UART_NUM; i++) {
       object_initialize_child(obj, "mcu-uart[*]", &s->mcu_uart[i], TYPE_AM64_UART);
@@ -244,19 +250,10 @@ static void ti_am64_create_main_unimplemented(TIAM64xState *s)
     ADD_MAIN_UNIMP("FSITX0_CFG",                           0x023600000ULL, 0x00000100ULL);
     ADD_MAIN_UNIMP("FSITX1_CFG",                           0x023610000ULL, 0x00000100ULL);
 
-/* ELM/ADC/MAILBOX/SPINLOCK */
+/* ELM/ADC/SPINLOCK */
     ADD_MAIN_UNIMP("ELM0",                                 0x025010000ULL, 0x00001000ULL); /* 4 KB */
     ADD_MAIN_UNIMP("ADC0_FIFO",                            0x028000000ULL, 0x00000400ULL);
     ADD_MAIN_UNIMP("ADC0",                                 0x028001000ULL, 0x00000400ULL);
-
-    ADD_MAIN_UNIMP("MAILBOX0_REGS0",                       0x029000000ULL, 0x00000200ULL);
-    ADD_MAIN_UNIMP("MAILBOX0_REGS1",                       0x029010000ULL, 0x00000200ULL);
-    ADD_MAIN_UNIMP("MAILBOX0_REGS2",                       0x029020000ULL, 0x00000200ULL);
-    ADD_MAIN_UNIMP("MAILBOX0_REGS3",                       0x029030000ULL, 0x00000200ULL);
-    ADD_MAIN_UNIMP("MAILBOX0_REGS4",                       0x029040000ULL, 0x00000200ULL);
-    ADD_MAIN_UNIMP("MAILBOX0_REGS5",                       0x029050000ULL, 0x00000200ULL);
-    ADD_MAIN_UNIMP("MAILBOX0_REGS6",                       0x029060000ULL, 0x00000200ULL);
-    ADD_MAIN_UNIMP("MAILBOX0_REGS7",                       0x029070000ULL, 0x00000200ULL);
 
     ADD_MAIN_UNIMP("SPINLOCK0",                            0x02A000000ULL, 0x00008000ULL); /* 32 KB */
 /* === PRU_ICSSG0 / PRU_ICSSG1 blocks === */
@@ -735,6 +732,9 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   memory_region_init_ram(&s->mcu_dram, NULL, "am64x.mcu.dram", MCU_DRAM_SIZE,
                          &err);
 
+  memory_region_init_ram(&s->mcu_ddr, NULL, "am64x.mcu.ddr", (512 * 1024 * 1024),
+                         &err);
+
   if (err != NULL) {
     error_propagate(errp, err);
     return;
@@ -751,12 +751,18 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   memory_region_add_subregion(&s->mcu_root, MCU_DRAM_BASE_ADDRESS,
                               &s->mcu_dram);
 
+  /* FIXME: This is a hack to allow loading resource table via elf*/
+  memory_region_add_subregion(&s->mcu_root, 0xa4100000,
+                              &s->mcu_ddr);
+  
+
   armv7m = DEVICE(&s->armv7m);
   qdev_prop_set_uint32(armv7m, "num-irq", 64);
   qdev_prop_set_uint8(armv7m, "num-prio-bits", 3);
   qdev_prop_set_string(armv7m, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m4"));
   qdev_connect_clock_in(armv7m, "cpuclk", s->sysclk);
   qdev_connect_clock_in(armv7m, "refclk", s->refclk);
+  qdev_prop_set_bit(armv7m, "start-powered-off", true);
   object_property_set_link(OBJECT(&s->armv7m), "memory", OBJECT(&s->mcu_root),
                            &error_abort);
   if (!sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), errp)) {
@@ -794,6 +800,20 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   memory_region_add_subregion(&s->soc_root, MAIN_SEC_PROXY_RT_ADDRESS, sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 2));
 
   memory_region_add_subregion(&s->soc_root, MAIN_SEC_PROXY_TARGET_ADDRESS, sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_proxy), 3));
+
+  for (int i = 0; i < TI_AM64X_MAILBOX_NUM; i++) {
+      hwaddr base = MAIN_MAILBOX_BASE_ADDRESS + (i * MAIN_MAILBOX_STRIDE);
+      qdev_prop_set_uint8(DEVICE(&s->mailbox[i]), "mailbox-id", i);
+      if (!sysbus_realize(SYS_BUS_DEVICE(&s->mailbox[i]), errp)) {
+          return;
+      }
+      memory_region_add_subregion(&s->soc_root, base,
+                                  sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->mailbox[i]), 0));
+  }
+  sysbus_connect_irq(SYS_BUS_DEVICE(&s->mailbox[6]), 3,
+                     qdev_get_gpio_in(DEVICE(&s->armv7m), 56));
+  sysbus_connect_irq(SYS_BUS_DEVICE(&s->mailbox[7]), 3,
+                     qdev_get_gpio_in(DEVICE(&s->armv7m), 57));
 
   struct ti_am64_uart_config {
         hwaddr base_addr;

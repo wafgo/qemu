@@ -170,7 +170,7 @@ static void arm_virt_compat_set(MachineClass *mc)
  */
 static const MemMapEntry base_memmap[] = {
     /* Space up to 0x8000000 is reserved for a boot ROM */
-    [VIRT_FLASH] =              {          0, 0x08000000 },
+    [VIRT_FLASH] =              {          0, 0x04000000 },
     [VIRT_CPUPERIPHS] =         { 0x08000000, 0x00020000 },
     /* GIC distributor and CPU interfaces sit inside the CPU peripheral space */
     [VIRT_GIC_DIST] =           { 0x08000000, 0x00010000 },
@@ -1935,6 +1935,7 @@ static void virt_set_high_memmap(VirtMachineState *vms,
 static void virt_set_memmap(VirtMachineState *vms, int pa_bits)
 {
     MachineState *ms = MACHINE(vms);
+    VirtMachineClass *vmc = VIRT_MACHINE_GET_CLASS(vms);
     hwaddr base, device_memory_base, device_memory_size, memtop;
     int i;
 
@@ -1942,6 +1943,9 @@ static void virt_set_memmap(VirtMachineState *vms, int pa_bits)
 
     for (i = 0; i < ARRAY_SIZE(base_memmap); i++) {
         vms->memmap[i] = base_memmap[i];
+    }
+    if (vmc->ram_base_override) {
+        vms->memmap[VIRT_MEM].base = vmc->ram_base_override;
     }
 
     if (ms->ram_slots > ACPI_MAX_RAM_SLOTS) {
@@ -2560,6 +2564,11 @@ static void machvirt_init(MachineState *machine)
 
     vms->machine_done.notify = virt_machine_done;
     qemu_add_machine_init_done_notifier(&vms->machine_done);
+}
+
+void virt_machine_init(MachineState *machine)
+{
+    machvirt_init(machine);
 }
 
 static bool virt_get_secure(Object *obj, Error **errp)
@@ -3309,7 +3318,7 @@ static void virt_machine_class_init(ObjectClass *oc, const void *data)
     mc->no_cdrom = 1;
     mc->pci_allow_0_address = true;
     /* We know we will never create a pre-ARMv7 CPU which needs 1K pages */
-    mc->minimum_page_bits = 12;
+    /* mc->minimum_page_bits = 12; */
     mc->possible_cpu_arch_ids = virt_possible_cpu_arch_ids;
     mc->cpu_index_to_instance_props = virt_cpu_index_to_props;
     mc->get_default_cpu_type = virt_get_default_cpu_type;

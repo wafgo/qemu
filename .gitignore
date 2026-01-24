@@ -20,3 +20,6 @@ GTAGS
 *.swp
 *.patch
 *.gcov
+/build-aarch64/
+/compile_commands.json
+/.agent-shell/

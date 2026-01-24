@@ -21,18 +21,21 @@
 #include "hw/misc/ti-rat.h"
 #include "hw/misc/ti-sec-proxy.h"
 #include "hw/misc/ti-dmsc.h"
+#include "hw/misc/ti-mailbox.h"
 #include "hw/char/ti-am64-uart.h"
 
 #define TYPE_TI_AM64X "ti-am64x"
 OBJECT_DECLARE_SIMPLE_TYPE(TIAM64xState, TI_AM64X)
 
 #define TI_AM64X_MCU_UART_NUM 2
+#define TI_AM64X_MAILBOX_NUM 8
     
 struct TIAM64xState {
     SysBusDevice parent_obj;
     ARMv7MState armv7m;
     MemoryRegion mcu_iram;
     MemoryRegion mcu_dram;
+    MemoryRegion mcu_ddr;
     MemoryRegion mcu_root;
     MemoryRegion soc_root;
     AddressSpace soc_as;
@@ -41,6 +44,7 @@ struct TIAM64xState {
     TIRATState rat;
     TISecProxyState sec_proxy;
     TIDmscState dmsc;
+    TIMailboxState mailbox[TI_AM64X_MAILBOX_NUM];
     AM64Uart mcu_uart[TI_AM64X_MCU_UART_NUM];
 };
 
