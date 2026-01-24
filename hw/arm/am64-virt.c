@@ -188,6 +188,7 @@ static void am64_virt_machine_class_init(ObjectClass *oc, const void *data)
     mc->desc = "AM64 virt machine";
     mc->init = am64_virt_init;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a53");
+    mc->default_nic = "virtio-net-pci";
     mc->default_ram_id = "am64-virt.ram";
     mc->default_cpus = TI_AM64X_A53_NUM;
     mc->max_cpus = TI_AM64X_A53_NUM + 4 + 1; /* + M4 + R5F */

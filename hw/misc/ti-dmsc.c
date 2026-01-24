@@ -16,6 +16,7 @@
 #include "hw/qdev-properties.h"
 #include "hw/qdev-core.h"
 #include "hw/resettable.h"
+#include "target/arm/arm-powerctl.h"
 #include "qemu/main-loop.h"
 #include "hw/misc/ti-dmsc.h"
 #include "trace.h"
@@ -873,6 +874,10 @@ static void ti_dmsc_handle_set_device_resets(TIDmscState *s,
                                         ti_dmsc_device_name_from_id(req->id),
                                         req->resets);
 
+    if (req->id == TISCI_DEV_MCU_M4FSS0_CORE0 && req->resets == 0) {
+        arm_set_cpu_on_and_reset(s->m4_cpu_id);
+    }
+
     if (!ti_sec_proxy_push_msg(s->sec_proxy, s->tx_thread_id,
                                (uint32_t *)&resp, sizeof(resp))) {
         qemu_log_mask(LOG_GUEST_ERROR,
@@ -967,6 +972,7 @@ static void ti_dmsc_finalize(Object *obj)
 static const Property ti_dmsc_props[] = {
     DEFINE_PROP_UINT16("rx-thread", TIDmscState, rx_thread_id, 17),
     DEFINE_PROP_UINT16("tx-thread", TIDmscState, tx_thread_id, 16),
+    DEFINE_PROP_UINT64("m4-cpu-id", TIDmscState, m4_cpu_id, 0),
 };
 
 static void ti_dmsc_class_init(ObjectClass *klass, const void *data)

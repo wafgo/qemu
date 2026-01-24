@@ -472,6 +472,7 @@ struct TIDmscState {
     /* Config */
     uint16_t rx_thread_id; /* e.g. M4_0_WRITE_THREAD */
     uint16_t tx_thread_id; /* e.g. M4_0_READ_RESPONSE_THREAD */
+    uint64_t m4_cpu_id;    /* QEMU CPU index used for MCU M4 */
 
     uint32_t msg_words;    /* usually 16 */
 

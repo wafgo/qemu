@@ -855,6 +855,7 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   if (!sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), errp)) {
     return;
   }
+  CPU(s->armv7m.cpu)->cpu_index = s->a53_cpus;
 
   object_property_set_link(OBJECT(&s->rat), "window-root", OBJECT(&s->mcu_root),
                            &error_abort);
@@ -881,6 +882,7 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
 
   qdev_prop_set_uint16(DEVICE(&s->dmsc), "rx-thread", 13);
   qdev_prop_set_uint16(DEVICE(&s->dmsc), "tx-thread", 12);
+  qdev_prop_set_uint64(DEVICE(&s->dmsc), "m4-cpu-id", s->a53_cpus);
 
   if (!qdev_realize(DEVICE(&s->dmsc), NULL, errp)) {
     return;
@@ -910,6 +912,33 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
                      qdev_get_gpio_in(DEVICE(&s->armv7m), 56));
   sysbus_connect_irq(SYS_BUS_DEVICE(&s->mailbox[7]), 3,
                      qdev_get_gpio_in(DEVICE(&s->armv7m), 57));
+  /* GIC SPI 108..: mailbox cluster pending intr2/3 (UM 7.1.2.1). */
+  {
+      struct {
+          uint8_t mbox;
+          uint8_t user;
+          uint16_t spi;
+      } gic_map[] = {
+          { 6, 2, 108 }, /* CLUSTER6_PEND_INTR2 */
+          { 7, 2, 109 }, /* CLUSTER7_PEND_INTR2 */
+          { 2, 2, 110 }, /* CLUSTER2_PEND_INTR2 */
+          { 2, 3, 111 }, /* CLUSTER2_PEND_INTR3 */
+          { 3, 2, 112 }, /* CLUSTER3_PEND_INTR2 */
+          { 3, 3, 113 }, /* CLUSTER3_PEND_INTR3 */
+          { 4, 2, 114 }, /* CLUSTER4_PEND_INTR2 */
+          { 4, 3, 115 }, /* CLUSTER4_PEND_INTR3 */
+          { 5, 2, 116 }, /* CLUSTER5_PEND_INTR2 */
+          { 5, 3, 117 }, /* CLUSTER5_PEND_INTR3 */
+      };
+
+      for (int i = 0; i < ARRAY_SIZE(gic_map); i++) {
+          uint16_t spi_index = gic_map[i].spi - GIC_INTERNAL;
+          sysbus_connect_irq(SYS_BUS_DEVICE(&s->mailbox[gic_map[i].mbox]),
+                             gic_map[i].user,
+                             qdev_get_gpio_in(DEVICE(&s->gic),
+                                              spi_index));
+      }
+  }
 
   struct ti_am64_uart_config {
         hwaddr base_addr;
