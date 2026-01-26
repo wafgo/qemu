@@ -17,6 +17,7 @@
 #include "system/memory.h"
 #include "hw/arm/armv7m.h"
 #include "cpu.h"
+#include "hw/cpu/cluster.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/clock.h"
 #include "qom/object.h"
@@ -36,6 +37,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(TIAM64xState, TI_AM64X)
     
 struct TIAM64xState {
     SysBusDevice parent_obj;
+    CPUClusterState a53_cluster;
+    CPUClusterState m4_cluster;
     ARMv7MState armv7m;
     ARMCPU a53[TI_AM64X_A53_NUM];
     GICState gic;

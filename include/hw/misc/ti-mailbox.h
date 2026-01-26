@@ -26,6 +26,7 @@ struct TIMailboxState {
     TIMailboxFifo mbox[16];
     uint32_t irq_enable[TI_MAILBOX_NUM_USERS_MAX];
     uint32_t raw_set[TI_MAILBOX_NUM_USERS_MAX];
+    bool irq_level[TI_MAILBOX_NUM_USERS_MAX];
     qemu_irq irq[TI_MAILBOX_NUM_USERS_MAX];
     uint8_t num_users;
     uint8_t fifo_depth;

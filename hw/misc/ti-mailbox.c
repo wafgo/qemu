@@ -11,11 +11,13 @@
 #include "hw/sysbus.h"
 #include "qemu/module.h"
 #include "qemu/bitops.h"
+#include "hw/core/cpu.h"
 #include "hw/qdev-properties.h"
 #include "hw/misc/ti-mailbox.h"
 #include "trace.h"
 #include "qapi/error.h"
 #include "hw/irq.h"
+#include "qom/object.h"
 
 #define TI_MAILBOX_MMIO_SIZE 0x200
 
@@ -74,6 +76,113 @@ static uint32_t ti_mailbox_hw_raw_status(const TIMailboxState *s)
     return raw;
 }
 
+static void ti_mailbox_fmt_opt_int(char *buf, size_t len,
+                                   const char *key, int value)
+{
+    if (value < 0) {
+        buf[0] = '\0';
+        return;
+    }
+
+    snprintf(buf, len, " %s=%d", key, value);
+}
+
+static void ti_mailbox_fmt_cpu(char *buf, size_t len)
+{
+    if (!current_cpu) {
+        snprintf(buf, len, " cpu=?");
+        return;
+    }
+
+    snprintf(buf, len, " cpu=%s:%d", object_get_typename(OBJECT(current_cpu)),
+             current_cpu->cpu_index);
+}
+
+static void ti_mailbox_irq_bits_to_str(uint32_t val, char *buf, size_t len)
+{
+    size_t pos = 0;
+    bool first = true;
+
+    for (int bit = 0; bit < TI_MAILBOX_NUM_MBOX * 2; bit++) {
+        if (!(val & BIT(bit))) {
+            continue;
+        }
+        if (pos < len) {
+            int mbox = bit / 2;
+            const char *event = (bit % 2 == 0) ? "newmsg" : "notfull";
+            int n = snprintf(buf + pos, len - pos, "%s%s:%d",
+                             first ? "" : ",", event, mbox);
+            if (n < 0 || (size_t)n >= len - pos) {
+                pos = len - 1;
+                break;
+            }
+            pos += n;
+            first = false;
+        }
+    }
+
+    if (first) {
+        g_strlcpy(buf, "-", len);
+    }
+}
+
+static const char *ti_mailbox_reg_name(hwaddr off, int *mbox, int *user)
+{
+    *mbox = -1;
+    *user = -1;
+
+    switch (off) {
+    case MAILBOX_REVISION:
+        return "MAILBOX_REVISION";
+    case MAILBOX_SYSCONFIG:
+        return "MAILBOX_SYSCONFIG";
+    case MAILBOX_IRQ_EOI:
+        return "MAILBOX_IRQ_EOI";
+    default:
+        break;
+    }
+
+    if (off >= MAILBOX_MESSAGE_BASE &&
+        off < MAILBOX_MESSAGE_BASE + TI_MAILBOX_NUM_MBOX * 4) {
+        *mbox = (off - MAILBOX_MESSAGE_BASE) / 4;
+        return "MAILBOX_MESSAGE_y";
+    }
+
+    if (off >= MAILBOX_FIFO_STATUS_BASE &&
+        off < MAILBOX_FIFO_STATUS_BASE + TI_MAILBOX_NUM_MBOX * 4) {
+        *mbox = (off - MAILBOX_FIFO_STATUS_BASE) / 4;
+        return "MAILBOX_FIFO_STATUS_y";
+    }
+
+    if (off >= MAILBOX_MSG_STATUS_BASE &&
+        off < MAILBOX_MSG_STATUS_BASE + TI_MAILBOX_NUM_MBOX * 4) {
+        *mbox = (off - MAILBOX_MSG_STATUS_BASE) / 4;
+        return "MAILBOX_MSG_STATUS_y";
+    }
+
+    if (off >= MAILBOX_IRQ_RAW_BASE &&
+        off < MAILBOX_IRQ_RAW_BASE + TI_MAILBOX_NUM_USERS_MAX * MAILBOX_IRQ_STRIDE) {
+        int rel;
+
+        *user = (off - MAILBOX_IRQ_RAW_BASE) / MAILBOX_IRQ_STRIDE;
+        rel = (off - MAILBOX_IRQ_RAW_BASE) % MAILBOX_IRQ_STRIDE;
+        switch (rel) {
+        case 0:
+            return "MAILBOX_IRQ_STATUS_RAW_j";
+        case 4:
+            return "MAILBOX_IRQ_STATUS_CLR_j";
+        case 8:
+            return "MAILBOX_IRQ_ENABLE_SET_j";
+        case 0x0C:
+            return "MAILBOX_IRQ_ENABLE_CLR_j";
+        default:
+            return "MAILBOX_IRQ_UNKNOWN";
+        }
+    }
+
+    return "UNKNOWN";
+}
+
 static void ti_mailbox_update_irqs(TIMailboxState *s)
 {
     uint32_t hw_raw = ti_mailbox_hw_raw_status(s);
@@ -82,7 +191,10 @@ static void ti_mailbox_update_irqs(TIMailboxState *s)
         uint32_t raw = hw_raw | s->raw_set[user];
         uint32_t masked = raw & s->irq_enable[user];
         bool level = masked != 0;
-        trace_ti_mailbox_irq(s->mailbox_id, user, level);
+        if (level != s->irq_level[user]) {
+            trace_ti_mailbox_irq(s->mailbox_id, user, level);
+            s->irq_level[user] = level;
+        }
         qemu_set_irq(s->irq[user], level);
     }
 }
@@ -100,7 +212,37 @@ static uint64_t ti_mailbox_read(void *opaque, hwaddr off, unsigned size)
 
 #define TI_MAILBOX_TRACE_READ(_val)                                      \
     do {                                                                 \
-        trace_ti_mailbox_read((uint64_t)off, (uint32_t)(_val), size);     \
+        char irq_bits[64];                                               \
+        char trace_cpu_str[64];                                          \
+        char trace_mbox_str[24];                                         \
+        char trace_user_str[24];                                         \
+        char trace_bits_str[96];                                         \
+        int trace_mbox;                                                  \
+        int trace_user;                                                  \
+        const char *trace_reg =                                          \
+            ti_mailbox_reg_name(off, &trace_mbox, &trace_user);          \
+        const char *trace_bits = "-";                                    \
+        const char *trace_bits_strp = "";                                \
+        if (!strcmp(trace_reg, "MAILBOX_IRQ_STATUS_RAW_j") ||            \
+            !strcmp(trace_reg, "MAILBOX_IRQ_STATUS_CLR_j") ||            \
+            !strcmp(trace_reg, "MAILBOX_IRQ_ENABLE_SET_j") ||            \
+            !strcmp(trace_reg, "MAILBOX_IRQ_ENABLE_CLR_j")) {            \
+            ti_mailbox_irq_bits_to_str((uint32_t)(_val), irq_bits,        \
+                                       sizeof(irq_bits));                \
+            trace_bits = irq_bits;                                       \
+            snprintf(trace_bits_str, sizeof(trace_bits_str),             \
+                     " irq_bits=%s", trace_bits);                        \
+            trace_bits_strp = trace_bits_str;                            \
+        }                                                                \
+        ti_mailbox_fmt_cpu(trace_cpu_str, sizeof(trace_cpu_str));        \
+        ti_mailbox_fmt_opt_int(trace_mbox_str, sizeof(trace_mbox_str),   \
+                               "mbox", trace_mbox);                      \
+        ti_mailbox_fmt_opt_int(trace_user_str, sizeof(trace_user_str),   \
+                               "user", trace_user);                      \
+        trace_ti_mailbox_read((uint64_t)off, (uint32_t)(_val), size,      \
+                              trace_reg, s->mailbox_id, trace_cpu_str,   \
+                              trace_mbox_str, trace_user_str,            \
+                              trace_bits_strp);                          \
         return (_val);                                                   \
     } while (0)
 
@@ -181,7 +323,41 @@ static void ti_mailbox_write(void *opaque, hwaddr off, uint64_t val,
 
     (void)size;
 
-    trace_ti_mailbox_write((uint64_t)off, (uint32_t)val, size);
+    {
+        char irq_bits[64];
+        char trace_cpu_str[64];
+        char trace_mbox_str[24];
+        char trace_user_str[24];
+        char trace_bits_str[96];
+        int trace_mbox;
+        int trace_user;
+        const char *trace_reg = ti_mailbox_reg_name(off, &trace_mbox,
+                                                    &trace_user);
+        const char *trace_bits = "-";
+        const char *trace_bits_strp = "";
+
+        if (!strcmp(trace_reg, "MAILBOX_IRQ_STATUS_RAW_j") ||
+            !strcmp(trace_reg, "MAILBOX_IRQ_STATUS_CLR_j") ||
+            !strcmp(trace_reg, "MAILBOX_IRQ_ENABLE_SET_j") ||
+            !strcmp(trace_reg, "MAILBOX_IRQ_ENABLE_CLR_j")) {
+            ti_mailbox_irq_bits_to_str((uint32_t)val, irq_bits,
+                                       sizeof(irq_bits));
+            trace_bits = irq_bits;
+            snprintf(trace_bits_str, sizeof(trace_bits_str),
+                     " irq_bits=%s", trace_bits);
+            trace_bits_strp = trace_bits_str;
+        }
+
+        ti_mailbox_fmt_cpu(trace_cpu_str, sizeof(trace_cpu_str));
+        ti_mailbox_fmt_opt_int(trace_mbox_str, sizeof(trace_mbox_str),
+                               "mbox", trace_mbox);
+        ti_mailbox_fmt_opt_int(trace_user_str, sizeof(trace_user_str),
+                               "user", trace_user);
+        trace_ti_mailbox_write((uint64_t)off, (uint32_t)val, size,
+                               trace_reg, s->mailbox_id, trace_cpu_str,
+                               trace_mbox_str, trace_user_str,
+                               trace_bits_strp);
+    }
 
     switch (off) {
     case MAILBOX_SYSCONFIG:
@@ -271,6 +447,7 @@ static void ti_mailbox_reset(DeviceState *dev)
     for (int i = 0; i < s->num_users; i++) {
         s->irq_enable[i] = 0;
         s->raw_set[i] = 0;
+        s->irq_level[i] = false;
     }
 
     ti_mailbox_update_irqs(s);

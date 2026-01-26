@@ -53,14 +53,23 @@
 static void ti_am64x_initfn(Object *obj) {
   TIAM64xState *s = TI_AM64X(obj);
 
-  object_initialize_child(obj, "armv7m", &s->armv7m, TYPE_ARMV7M);
+  object_initialize_child(obj, "a53-cluster", &s->a53_cluster,
+                          TYPE_CPU_CLUSTER);
+  qdev_prop_set_uint32(DEVICE(&s->a53_cluster), "cluster-id", 0);
+
+  object_initialize_child(obj, "m4-cluster", &s->m4_cluster,
+                          TYPE_CPU_CLUSTER);
+  qdev_prop_set_uint32(DEVICE(&s->m4_cluster), "cluster-id", 1);
+
+  object_initialize_child(OBJECT(&s->m4_cluster), "armv7m", &s->armv7m,
+                          TYPE_ARMV7M);
   object_initialize_child(obj, "gic", &s->gic, TYPE_ARM_GIC);
   object_initialize_child(obj, "rat", &s->rat, TYPE_TI_RAT);
   object_initialize_child(obj, "sec-proxy", &s->sec_proxy, TYPE_TI_SEC_PROXY);
   object_initialize_child(obj, "dmsc", &s->dmsc, TYPE_TI_DMSC);
 
   for (int i = 0; i < TI_AM64X_A53_NUM; i++) {
-      object_initialize_child(obj, "a53[*]", &s->a53[i],
+      object_initialize_child(OBJECT(&s->a53_cluster), "a53[*]", &s->a53[i],
                               ARM_CPU_TYPE_NAME("cortex-a53"));
   }
 
@@ -797,6 +806,9 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
       return;
     }
   }
+  if (!qdev_realize(DEVICE(&s->a53_cluster), NULL, errp)) {
+    return;
+  }
 
   {
     DeviceState *gicdev = DEVICE(&s->gic);
@@ -856,6 +868,9 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
     return;
   }
   CPU(s->armv7m.cpu)->cpu_index = s->a53_cpus;
+  if (!qdev_realize(DEVICE(&s->m4_cluster), NULL, errp)) {
+    return;
+  }
 
   object_property_set_link(OBJECT(&s->rat), "window-root", OBJECT(&s->mcu_root),
                            &error_abort);

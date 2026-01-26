@@ -70,9 +70,9 @@ ecc_diag_mem_readb(uint64_t addr, uint32_t ret) "Read diagnostic %"PRId64"= 0x%0
 empty_slot_write(uint64_t addr, unsigned width, uint64_t value, unsigned size, const char *name) "wr addr:0x%04"PRIx64" data:0x%0*"PRIx64" size %u [%s]"
 
 # ti-mailbox.c
-ti_mailbox_read(uint64_t offset, uint32_t value, unsigned size) "off=0x%" PRIx64 " size=%u val=0x%08x"
-ti_mailbox_write(uint64_t offset, uint32_t value, unsigned size) "off=0x%" PRIx64 " size=%u val=0x%08x"
-ti_mailbox_irq(uint8_t mailbox_id, uint8_t user, int level) "mbox=%u user=%u level=%d"
+ti_mailbox_read(uint64_t offset, uint32_t value, unsigned size, const char *reg, uint8_t mailbox_id, const char *cpu_str, const char *mbox_str, const char *user_str, const char *irq_bits_str) "off=0x%" PRIx64 " value=0x%08x size=%u reg=%s mailbox_id=%u%s%s%s%s"
+ti_mailbox_write(uint64_t offset, uint32_t value, unsigned size, const char *reg, uint8_t mailbox_id, const char *cpu_str, const char *mbox_str, const char *user_str, const char *irq_bits_str) "off=0x%" PRIx64 " value=0x%08x size=%u reg=%s mailbox_id=%u%s%s%s%s"
+ti_mailbox_irq(uint8_t mailbox_id, uint8_t user, int level) "mailbox_id=%u user=%u level=%d"
 
 # slavio_misc.c
 slavio_misc_update_irq_raise(void) "Raise IRQ"
