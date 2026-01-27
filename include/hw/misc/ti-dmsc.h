@@ -349,6 +349,23 @@ struct TiSciMsgReqProcRelease {
 	uint8_t processor_id;
 } QEMU_PACKED;
 
+#define TISCI_MSG_VAL_PROC_BOOT_STATUS_FLAG_M4F_WFI    (0x00000002U)
+
+struct TisciMsgProcGetStatusReq {
+    TISciMsgHdr hdr;
+    uint8_t processor_id;
+} QEMU_PACKED;
+
+struct TisciMsgProcGetStatusResp {
+    TISciMsgHdr hdr;
+    uint8_t processor_id;
+    uint32_t bootvector_lo;
+    uint32_t bootvector_hi;
+    uint32_t config_flags_1;
+    uint32_t control_flags_1;
+    uint32_t status_flags_1;
+} QEMU_PACKED;
+
 struct TisciMsgSetDeviceReq {
     TISciMsgHdr hdr;
     uint32_t id;
@@ -484,6 +501,7 @@ struct TIDmscState {
 
     uint8_t dev_hw_state[TISCI_DEV_ID_MAX];
     uint8_t dev_prog_state[TISCI_DEV_ID_MAX];
+    bool m4_running;
 
     
     /* Single-slot queue for simplicity (extend to FIFO if needed) */

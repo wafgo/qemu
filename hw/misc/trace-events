@@ -72,7 +72,7 @@ empty_slot_write(uint64_t addr, unsigned width, uint64_t value, unsigned size, c
 # ti-mailbox.c
 ti_mailbox_read(uint64_t offset, uint32_t value, unsigned size, const char *reg, uint8_t mailbox_id, const char *cpu_str, const char *mbox_str, const char *user_str, const char *irq_bits_str) "off=0x%" PRIx64 " value=0x%08x size=%u reg=%s mailbox_id=%u%s%s%s%s"
 ti_mailbox_write(uint64_t offset, uint32_t value, unsigned size, const char *reg, uint8_t mailbox_id, const char *cpu_str, const char *mbox_str, const char *user_str, const char *irq_bits_str) "off=0x%" PRIx64 " value=0x%08x size=%u reg=%s mailbox_id=%u%s%s%s%s"
-ti_mailbox_irq(uint8_t mailbox_id, uint8_t user, int level) "mailbox_id=%u user=%u level=%d"
+ti_mailbox_irq(uint8_t mailbox_id, uint8_t user, int level, uint32_t raw, uint32_t enable, uint32_t masked) "mailbox_id=%u user=%u level=%d raw=0x%08x enable=0x%08x masked=0x%08x"
 
 # slavio_misc.c
 slavio_misc_update_irq_raise(void) "Raise IRQ"
@@ -417,13 +417,14 @@ i2c_echo_send(const char *id, uint8_t data) "%s: send 0x%02" PRIx8
 
 # ti-dmsc.c
 dmsc_handle_set_clock(const char *type, const char *host_name, const char *device_name, int clk) "%s received from host %s, device %s, clk: %i"
-dmsc_handle_get_device(const char *type, const char *host_name, const char *device_name) "%s received from host %s, device %s"
+dmsc_handle_get_device(const char *type, const char *host_name, const char *device_name, uint8_t prog_state, uint8_t current_state) "%s received from host %s, device %s, response: prog_state: %i, current_state: %i"
 dmsc_handle_get_clock(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
 dmsc_handle_get_clock_parents(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
 dmsc_handle_query_freq(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32, uint64_t target_freq) "%s received from host %s, device %s, clk %u, clk32 %u, target_frequency %"PRIu64
-dmsc_handle_set_device_state(const char *type, const char *host_name, const char *device_name, uint8_t state) "%s received from host %s, device %s, state %u"
-dmsc_set_device_state_start(const char *device_name, int device_id, const char *host_name) "Start requested for device %s (%i) from host %s"
+dmsc_handle_set_device_state(const char *type, const char *host_name, const char *device_name, const char *state) "%s received from host %s, device %s, state %s"
 dmsc_handle_set_device_resets(const char *type, const char *host_name, const char *device_name, uint32_t resets) "%s received from host %s, device %s, resets 0x%08x"
+dmsc_handle_get_status(const char *type, const char *host_name, const char *proc_name, uint8_t proc_id) "%s received from host %s, proc %s (%u)"
+dmsc_get_status_resp(const char *proc_name, uint8_t proc_id, uint32_t status_flags, int m4_running) "GET_STATUS response for %s (%u): status_flags=0x%08x, m4_running=%d"
 dmsc_unsupported_message(const char *msg, int type, const char *host, int thread_id) "No handler for message type=%s (%i) from host %s ... (thread id: %i) dropping"
 dmsc_new_message_received(int type, const char *msg, const char *host, int thread_id) "Handling message type=0x%04x (%s) from host=%s, thread=%u"
 dmsc_get_version(const char* msg, const char *host, const char *description) "Get Version received %s from host %s. Description returned %s"

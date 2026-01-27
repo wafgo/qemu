@@ -95,6 +95,20 @@ static const char *ti_dmsc_host_name_from_id(uint32_t host_id)
     }
 }
 
+static const char *ti_dmsc_device_state_to_str(uint8_t state)
+{
+    switch (state) {
+    case TISCI_MSG_VALUE_DEVICE_SW_STATE_AUTO_OFF:
+        return "AUTO";
+    case TISCI_MSG_VALUE_DEVICE_SW_STATE_RETENTION:
+        return "RETENTION";
+    case TISCI_MSG_VALUE_DEVICE_SW_STATE_ON:
+        return "ON";
+    default:
+        return "UNKNOWN_STATE";
+    }
+}
+
 static const char *ti_dmsc_device_name_from_id(uint32_t dev_id)
 {
     switch (dev_id) {
@@ -410,6 +424,7 @@ static void ti_dmsc_init_device_states(TIDmscState *s)
         TISCI_MSG_VALUE_DEVICE_HW_STATE_OFF;
     s->dev_prog_state[TISCI_DEV_MCU_M4FSS0_CORE0] =
         TISCI_MSG_VALUE_DEVICE_HW_STATE_OFF;
+    s->m4_running = false;
 }
 
 static const char *ti_dmsc_message_name_from_id(uint16_t msg_id)
@@ -724,7 +739,12 @@ static void ti_dmsc_stop_proc(TIDmscState *s, TISciMsgHdr *hdr,
     TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);
     trace_dmsc_stop_proc(ti_dmsc_proc_name_from_id(req->processor_id), req->processor_id, ti_dmsc_host_name_from_id(hdr->host));
 
-    if (!ti_sec_proxy_push_msg(s->sec_proxy, s->tx_thread_id, (uint32_t *)&resp, sizeof(resp))) {
+    if (req->processor_id == SCICLIENT_PROCID_MCU_M4FSS0_C0) {
+        s->m4_running = false;
+    }
+
+    if (!ti_sec_proxy_push_msg(s->sec_proxy, s->tx_thread_id,
+                               (uint32_t *)&resp, sizeof(resp))) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "ti-dmsc: Failed to push PROC_RELEASE response into sec-proxy thread=%u\n",
                       s->tx_thread_id);
@@ -801,8 +821,6 @@ static void ti_dmsc_handle_get_device(TIDmscState *s,
     struct TisciMsgGetDeviceReq *req = (struct TisciMsgGetDeviceReq *)words;
     struct TisciMsgGetDeviceResp resp = { 0 };
     
-    trace_dmsc_handle_get_device(ti_dmsc_message_name_from_id(hdr->type), ti_dmsc_host_name_from_id(hdr->host), ti_dmsc_device_name_from_id(req->id));
-    
     resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
     if (req->id < TISCI_DEV_ID_MAX) {
         resp.current_state = s->dev_hw_state[req->id];
@@ -811,7 +829,9 @@ static void ti_dmsc_handle_get_device(TIDmscState *s,
         resp.current_state = resp.programmed_state =
             TISCI_MSG_VALUE_DEVICE_HW_STATE_ON;
     }
-    
+
+    trace_dmsc_handle_get_device(ti_dmsc_message_name_from_id(hdr->type), ti_dmsc_host_name_from_id(hdr->host), ti_dmsc_device_name_from_id(req->id), resp.programmed_state, resp.current_state);
+
     if (!ti_sec_proxy_push_msg(s->sec_proxy, s->tx_thread_id, (uint32_t *)&resp, sizeof(resp))) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "ti-dmsc: Failed to push GET_DEVICE response into sec-proxy thread=%u\n",
@@ -819,6 +839,45 @@ static void ti_dmsc_handle_get_device(TIDmscState *s,
     }
 }
 
+static void ti_dmsc_handle_get_status(TIDmscState *s,
+                                            TISciMsgHdr *hdr,
+                                            uint16_t thread_id,
+                                            const uint32_t *words,
+                                            size_t nwords)
+{
+    struct TisciMsgProcGetStatusReq *req =
+        (struct TisciMsgProcGetStatusReq *)words;
+    struct TisciMsgProcGetStatusResp resp = { 0 };
+
+    trace_dmsc_handle_get_status(ti_dmsc_message_name_from_id(hdr->type),
+                                 ti_dmsc_host_name_from_id(hdr->host),
+                                 ti_dmsc_proc_name_from_id(req->processor_id),
+                                 req->processor_id);
+
+    resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
+    resp.processor_id = req->processor_id;
+    resp.bootvector_lo = 0;
+    resp.bootvector_hi = 0;
+    resp.config_flags_1 = 0;
+    resp.control_flags_1 = 0;
+    resp.status_flags_1 = 0;
+    
+    if (req->processor_id == SCICLIENT_PROCID_MCU_M4FSS0_C0) {
+        resp.status_flags_1 |= TISCI_MSG_VAL_PROC_BOOT_STATUS_FLAG_M4F_WFI;
+    }
+
+    trace_dmsc_get_status_resp(ti_dmsc_proc_name_from_id(req->processor_id),
+                               req->processor_id,
+                               resp.status_flags_1,
+                               s->m4_running);
+
+    if (!ti_sec_proxy_push_msg(s->sec_proxy, s->tx_thread_id,
+                               (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push GET_STATUS response into sec-proxy thread=%u\n",
+                      s->tx_thread_id);
+    }
+}
 static void ti_dmsc_handle_set_device_state(TIDmscState *s,
                                             TISciMsgHdr *hdr,
                                             uint16_t thread_id,
@@ -831,24 +890,14 @@ static void ti_dmsc_handle_set_device_state(TIDmscState *s,
     trace_dmsc_handle_set_device_state(ti_dmsc_message_name_from_id(hdr->type),
                                        ti_dmsc_host_name_from_id(hdr->host),
                                        ti_dmsc_device_name_from_id(req->id),
-                                       req->state);
+                                       ti_dmsc_device_state_to_str(req->state));
 
-    if (req->id < TISCI_DEV_ID_MAX) {
-        if (req->state == TISCI_MSG_VALUE_DEVICE_SW_STATE_ON) {
-            s->dev_hw_state[req->id] = TISCI_MSG_VALUE_DEVICE_HW_STATE_ON;
-            s->dev_prog_state[req->id] = TISCI_MSG_VALUE_DEVICE_HW_STATE_ON;
-        } else {
-            s->dev_hw_state[req->id] = TISCI_MSG_VALUE_DEVICE_HW_STATE_OFF;
-            s->dev_prog_state[req->id] = TISCI_MSG_VALUE_DEVICE_HW_STATE_OFF;
-        }
-    }
+    if (req->id < TISCI_DEV_ID_MAX) 
+        s->dev_hw_state[req->id] = s->dev_prog_state[req->id] = req->state;
 
     if (req->id == TISCI_DEV_MCU_M4FSS0_CORE0 &&
-        req->state == TISCI_MSG_VALUE_DEVICE_SW_STATE_ON) {
-        trace_dmsc_set_device_state_start(ti_dmsc_device_name_from_id(req->id),
-                                          req->id,
-                                          ti_dmsc_host_name_from_id(hdr->host));
-        /* arm_set_cpu_on_and_reset(MCU_M4FSS0_CORE0_CPU_ID); */
+        req->state != TISCI_MSG_VALUE_DEVICE_SW_STATE_ON) {
+        s->m4_running = false;
     }
 
     if (!ti_sec_proxy_push_msg(s->sec_proxy, s->tx_thread_id,
@@ -874,8 +923,15 @@ static void ti_dmsc_handle_set_device_resets(TIDmscState *s,
                                         ti_dmsc_device_name_from_id(req->id),
                                         req->resets);
 
-    if (req->id == TISCI_DEV_MCU_M4FSS0_CORE0 && req->resets == 0) {
-        arm_set_cpu_on_and_reset(s->m4_cpu_id);
+    if (req->id == TISCI_DEV_MCU_M4FSS0_CORE0) {
+        s->m4_running = !(req->resets);
+        if (req->resets == 1) {
+            arm_set_cpu_off(s->m4_cpu_id);
+        } else {
+            arm_set_cpu_on_and_reset(s->m4_cpu_id);
+        }
+    } else if (req->id == TISCI_DEV_MCU_M4FSS0_CORE0) {
+        s->m4_running = false;
     }
 
     if (!ti_sec_proxy_push_msg(s->sec_proxy, s->tx_thread_id,
@@ -915,6 +971,7 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     s->msg_handler[TISCI_MSG_VERSION] = ti_dmsc_get_version;
     s->msg_handler[TISCI_MSG_GET_DEVICE] = ti_dmsc_handle_get_device;
     s->msg_handler[TISCI_MSG_SET_DEVICE] = ti_dmsc_handle_set_device_state;
+    s->msg_handler[TISCI_MSG_GET_STATUS] = ti_dmsc_handle_get_status;
     s->msg_handler[TISCI_MSG_SET_DEVICE_RESETS] =
         ti_dmsc_handle_set_device_resets;
     s->msg_handler[TISCI_MSG_GET_CLOCK] = ti_dmsc_handle_get_clock;
