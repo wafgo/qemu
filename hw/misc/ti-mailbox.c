@@ -69,6 +69,8 @@ static void ti_mailbox_update_irqs(TIMailboxState *s)
         TIMailboxUser *u = &s->users[user];
         uint32_t raw = (hw_raw & ~u->raw_clear_mask) | u->raw_set;
         uint32_t masked = raw & u->irq_enable;
+        trace_ti_mailbox_irq_eval(s->mailbox_id, user, hw_raw, raw,
+                                  u->irq_enable, masked);
         bool level = masked != 0;
         if (level != u->irq_level) {
             trace_ti_mailbox_irq(s->mailbox_id, user, level, raw,
@@ -100,25 +102,36 @@ static void ti_mailbox_arm_pulse(TIMailboxState *s, QEMUTimer *timer)
               TI_MAILBOX_PULSE_NS_DEFAULT);
 }
 
-static bool ti_mailbox_fifo_push(Fifo32 *f, uint8_t depth, uint32_t val)
+static bool ti_mailbox_fifo_push(TIMailboxState *s, int mb, uint32_t val)
 {
-    if (fifo32_num_used(f) >= depth) {
-        return false;
-    }
+    Fifo32 *f = &s->mbox[mb];
+    uint32_t used_before = fifo32_num_used(f);
+    bool ok = used_before < s->fifo_depth;
 
-    fifo32_push(f, val);
-    return true;
+    if (ok) {
+        fifo32_push(f, val);
+    }
+    trace_ti_mailbox_fifo_push(s->mailbox_id, mb, s->fifo_depth,
+                               used_before, val, ok);
+    return ok;
 }
 
-static bool ti_mailbox_fifo_pop(Fifo32 *f, uint8_t depth, uint32_t *val)
+static bool ti_mailbox_fifo_pop(TIMailboxState *s, int mb, uint32_t *val)
 {
-    (void)depth;
+    Fifo32 *f = &s->mbox[mb];
+    uint32_t used_before = fifo32_num_used(f);
+    bool ok = !fifo32_is_empty(f);
+    uint32_t out = 0;
 
-    if (fifo32_is_empty(f)) {
-        return false;
+    if (ok) {
+        out = fifo32_pop(f);
     }
-    *val = fifo32_pop(f);
-    return true;
+    if (val) {
+        *val = out;
+    }
+    trace_ti_mailbox_fifo_pop(s->mailbox_id, mb, s->fifo_depth,
+                              used_before, out, ok);
+    return ok;
 }
 
 static void ti_mailbox_fmt_opt_int(char *buf, size_t len,
@@ -290,7 +303,7 @@ static uint64_t ti_mailbox_read(void *opaque, hwaddr off, unsigned size)
     if (off >= MAILBOX_MESSAGE_BASE &&
         off < MAILBOX_MESSAGE_BASE + TI_MAILBOX_NUM_MBOX * 4) {
         mb = (off - MAILBOX_MESSAGE_BASE) / 4;
-        if (!ti_mailbox_fifo_pop(&s->mbox[mb], s->fifo_depth, &val)) {
+        if (!ti_mailbox_fifo_pop(s, mb, &val)) {
             qemu_log_mask(LOG_GUEST_ERROR, "%s: read empty mailbox %d\n",
                           TYPE_TI_MAILBOX, mb);
             TI_MAILBOX_TRACE_READ(0);
@@ -414,7 +427,15 @@ static void ti_mailbox_write(void *opaque, hwaddr off, uint64_t val,
     if (off >= MAILBOX_MESSAGE_BASE &&
         off < MAILBOX_MESSAGE_BASE + TI_MAILBOX_NUM_MBOX * 4) {
         mb = (off - MAILBOX_MESSAGE_BASE) / 4;
-        if (!ti_mailbox_fifo_push(&s->mbox[mb], s->fifo_depth, (uint32_t)val)) {
+        {
+            char trace_cpu_str[64];
+            uint64_t pc = current_cpu ? (uint64_t)current_cpu->cc->get_pc(current_cpu) : 0;
+
+            ti_mailbox_fmt_cpu(trace_cpu_str, sizeof(trace_cpu_str));
+            trace_ti_mailbox_msg_write_pc(s->mailbox_id, mb, pc,
+                                          trace_cpu_str);
+        }
+        if (!ti_mailbox_fifo_push(s, mb, (uint32_t)val)) {
             qemu_log_mask(LOG_GUEST_ERROR, "%s: mailbox %d full\n",
                           TYPE_TI_MAILBOX, mb);
             return;
@@ -437,7 +458,8 @@ static void ti_mailbox_write(void *opaque, hwaddr off, uint64_t val,
                 return;
             }
             s->users[user].raw_set |= mask;
-            ti_mailbox_arm_pulse(s, s->users[user].raw_pulse_timer);
+            trace_ti_mailbox_raw_set(s->mailbox_id, user, mask,
+                                     s->users[user].raw_set);
             ti_mailbox_update_irqs(s);
             return;
         }
@@ -446,18 +468,24 @@ static void ti_mailbox_write(void *opaque, hwaddr off, uint64_t val,
                 return;
             }
             s->users[user].raw_set &= ~mask;
-            s->users[user].raw_clear_mask |= mask;
-            ti_mailbox_arm_pulse(s, s->users[user].clr_pulse_timer);
+            s->users[user].raw_clear_mask &= ~mask;
+            trace_ti_mailbox_raw_clear(s->mailbox_id, user, mask,
+                                       s->users[user].raw_set,
+                                       s->users[user].raw_clear_mask);
             ti_mailbox_update_irqs(s);
             return;
         }
         if (rel == 8) {
             s->users[user].irq_enable |= mask;
+            trace_ti_mailbox_irq_enable(s->mailbox_id, user, 1, mask,
+                                        s->users[user].irq_enable);
             ti_mailbox_update_irqs(s);
             return;
         }
         if (rel == 0x0C) {
             s->users[user].irq_enable &= ~mask;
+            trace_ti_mailbox_irq_enable(s->mailbox_id, user, 0, mask,
+                                        s->users[user].irq_enable);
             ti_mailbox_update_irqs(s);
             return;
         }
@@ -480,6 +508,7 @@ static void ti_mailbox_reset(DeviceState *dev)
 {
     TIMailboxState *s = TI_MAILBOX(dev);
 
+    trace_ti_mailbox_reset_state(s->mailbox_id);
     for (int i = 0; i < TI_MAILBOX_NUM_MBOX; i++) {
         fifo32_reset(&s->mbox[i]);
     }

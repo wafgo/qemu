@@ -473,12 +473,22 @@ struct TisciMsgGetDeviceResp {
 } QEMU_PACKED;
 
 
-typedef void (*TiDmscMsgHandler)(TIDmscState *s,
+typedef struct TIDmscClient TIDmscClient;
+
+typedef void (*TiDmscMsgHandler)(TIDmscClient *client,
                                  TISciMsgHdr *hdr,
                                  uint16_t thread_id,
                                  const uint32_t *words,
                                  size_t nwords);
 
+struct TIDmscClient {
+    TIDmscState *dmsc;
+    uint16_t rx_thread_id;
+    uint16_t tx_thread_id;
+    bool pending;
+    uint32_t pending_words[TI_DMSC_MAX_WORDS];
+    size_t pending_nwords;
+};
 
 struct TIDmscState {
     DeviceState parent_obj;
@@ -489,6 +499,10 @@ struct TIDmscState {
     /* Config */
     uint16_t rx_thread_id; /* e.g. M4_0_WRITE_THREAD */
     uint16_t tx_thread_id; /* e.g. M4_0_READ_RESPONSE_THREAD */
+    uint32_t num_rx_threads;
+    uint16_t *rx_thread_ids;
+    uint32_t num_tx_threads;
+    uint16_t *tx_thread_ids;
     uint64_t m4_cpu_id;    /* QEMU CPU index used for MCU M4 */
 
     uint32_t msg_words;    /* usually 16 */
@@ -498,17 +512,12 @@ struct TIDmscState {
     QemuMutex lock;
 
     TiDmscMsgHandler msg_handler[TISCI_MSG_MAX_ID];
+    uint32_t num_clients;
+    TIDmscClient *clients;
 
     uint8_t dev_hw_state[TISCI_DEV_ID_MAX];
     uint8_t dev_prog_state[TISCI_DEV_ID_MAX];
     bool m4_running;
-
-    
-    /* Single-slot queue for simplicity (extend to FIFO if needed) */
-    bool pending;
-    uint16_t pending_thread;
-    uint32_t pending_words[TI_DMSC_MAX_WORDS];
-    size_t pending_nwords;
 };
 
 

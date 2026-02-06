@@ -58,6 +58,8 @@ struct TIAM64xState {
     uint64_t main_ram_base;
     uint64_t main_ram_size;
     uint8_t a53_cpus;
+    bool a53_start_powered_off;
+    bool m4_start_powered_off;
 };
 
 #endif

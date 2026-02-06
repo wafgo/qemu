@@ -24,6 +24,7 @@
 #include "qemu/error-report.h"
 #include "chardev/char.h"
 #include "qemu/units.h"
+#include "qapi/visitor.h"
 
 #define AM64_VIRT_DRAM_BASE 0x80000000ULL
 #define AM64_VIRT_UART0_BASE 0x09000000ULL
@@ -51,10 +52,46 @@ typedef struct AM64VirtMachineState {
     MachineState parent_obj;
     TIAM64xState *soc;
     struct arm_boot_info bootinfo;
+    int32_t m4boot_cpu;
 } AM64VirtMachineState;
 
 #define TYPE_AM64_VIRT_MACHINE MACHINE_TYPE_NAME("am64-virt")
 OBJECT_DECLARE_SIMPLE_TYPE(AM64VirtMachineState, AM64_VIRT_MACHINE)
+
+static void am64_virt_get_m4boot_cpu(Object *obj, Visitor *v,
+                                     const char *name, void *opaque,
+                                     Error **errp)
+{
+    AM64VirtMachineState *ams = AM64_VIRT_MACHINE(obj);
+    int32_t value = ams->m4boot_cpu;
+
+    visit_type_int32(v, name, &value, errp);
+}
+
+static void am64_virt_set_m4boot_cpu(Object *obj, Visitor *v,
+                                     const char *name, void *opaque,
+                                     Error **errp)
+{
+    AM64VirtMachineState *ams = AM64_VIRT_MACHINE(obj);
+    int32_t value;
+
+    if (!visit_type_int32(v, name, &value, errp)) {
+        return;
+    }
+    if (value != -1 && value != 0) {
+        error_setg(errp, "am64-virt: m4boot_cpu must be -1 or 0");
+        return;
+    }
+    ams->m4boot_cpu = value;
+}
+
+static void am64_virt_machine_instance_init(Object *obj)
+{
+    AM64VirtMachineState *ams = AM64_VIRT_MACHINE(obj);
+
+    ams->m4boot_cpu = -1;
+    object_property_add_alias(obj, "m4boot_cpu", obj, "m4boot-cpu");
+}
 
 static void am64_virt_create_uart(hwaddr base, int irq, Chardev *chr,
                                   DeviceState *gic)
@@ -146,12 +183,29 @@ static void am64_virt_init(MachineState *machine)
     DeviceState *soc = qdev_new(TYPE_TI_AM64X);
     DeviceState *gic;
     Clock *sysclk = clock_new(OBJECT(machine), "SYSCLK");
+    Chardev *mcu_chardev;
 
     clock_set_hz(sysclk, SYSCLK_FRQ);
     qdev_prop_set_uint8(soc, "a53-cpus", machine->smp.cpus);
     qdev_prop_set_uint64(soc, "ram-base", AM64_VIRT_DRAM_BASE);
     qdev_prop_set_uint64(soc, "ram-size", machine->ram_size);
     qdev_connect_clock_in(soc, "sysclk", sysclk);
+    mcu_chardev = qemu_chr_find("uart0");
+    if (!mcu_chardev) {
+        mcu_chardev = qemu_chr_find("serial0");
+    }
+    if (mcu_chardev) {
+        qdev_prop_set_chr(DEVICE(&TI_AM64X(soc)->mcu_uart[0]),
+                          "chardev", mcu_chardev);
+    }
+    if (ams->m4boot_cpu >= 0) {
+        if (ams->m4boot_cpu != 0) {
+            error_report("am64-virt: m4boot_cpu only supports value 0");
+            exit(1);
+        }
+        qdev_prop_set_bit(soc, "a53-start-powered-off", true);
+        qdev_prop_set_bit(soc, "m4-start-powered-off", false);
+    }
 
     sysbus_realize_and_unref(SYS_BUS_DEVICE(soc), &error_fatal);
     ams->soc = TI_AM64X(soc);
@@ -178,7 +232,9 @@ static void am64_virt_init(MachineState *machine)
         error_report("am64-virt: CPU0 not realized");
         exit(1);
     }
-    arm_load_kernel(ARM_CPU(qemu_get_cpu(0)), machine, &ams->bootinfo);
+    if (ams->m4boot_cpu < 0) {
+        arm_load_kernel(ARM_CPU(qemu_get_cpu(0)), machine, &ams->bootinfo);
+    }
 }
 
 static void am64_virt_machine_class_init(ObjectClass *oc, const void *data)
@@ -193,12 +249,20 @@ static void am64_virt_machine_class_init(ObjectClass *oc, const void *data)
     mc->default_cpus = TI_AM64X_A53_NUM;
     mc->max_cpus = TI_AM64X_A53_NUM + 4 + 1; /* + M4 + R5F */
     mc->default_ram_size = 2 * GiB;
+
+    object_class_property_add(oc, "m4boot-cpu", "int32",
+                              am64_virt_get_m4boot_cpu,
+                              am64_virt_set_m4boot_cpu,
+                              NULL, NULL);
+    object_class_property_set_description(oc, "m4boot-cpu",
+                                          "Set to 0 to boot only the M4 core");
 }
 
 static const TypeInfo am64_virt_machine_info = {
     .name = TYPE_AM64_VIRT_MACHINE,
     .parent = TYPE_MACHINE,
     .instance_size = sizeof(AM64VirtMachineState),
+    .instance_init = am64_virt_machine_instance_init,
     .class_init = am64_virt_machine_class_init,
     .interfaces = arm_aarch64_machine_interfaces,
 };

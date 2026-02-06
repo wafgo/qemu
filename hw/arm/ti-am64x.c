@@ -22,6 +22,7 @@
 #include "hw/misc/ti-sec-proxy.h"
 #include "hw/intc/arm_gic.h"
 
+#include "qobject/qlist.h"
 #include "qemu/units.h"
 #include "system/address-spaces.h"
 #include "system/system.h"
@@ -799,7 +800,8 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
       return;
     }
     cs->cpu_index = i;
-    qdev_prop_set_bit(DEVICE(&s->a53[i]), "start-powered-off", i > 0);
+    qdev_prop_set_bit(DEVICE(&s->a53[i]), "start-powered-off",
+                      s->a53_start_powered_off || i > 0);
     qdev_prop_set_bit(DEVICE(&s->a53[i]), "has_el3", true);
     qdev_prop_set_bit(DEVICE(&s->a53[i]), "has_el2", true);
     if (!qdev_realize(DEVICE(&s->a53[i]), NULL, errp)) {
@@ -860,8 +862,8 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   qdev_prop_set_uint8(armv7m, "num-prio-bits", 3);
   qdev_prop_set_string(armv7m, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m4"));
   qdev_connect_clock_in(armv7m, "cpuclk", s->sysclk);
-  qdev_connect_clock_in(armv7m, "refclk", s->refclk);
-  qdev_prop_set_bit(armv7m, "start-powered-off", true);
+  /* qdev_connect_clock_in(armv7m, "refclk", s->refclk); */
+  qdev_prop_set_bit(armv7m, "start-powered-off", s->m4_start_powered_off);
   object_property_set_link(OBJECT(&s->armv7m), "memory", OBJECT(&s->mcu_root),
                            &error_abort);
   if (!sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), errp)) {
@@ -895,8 +897,31 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
                          OBJECT(&s->sec_proxy),
                          &error_abort);
 
-  qdev_prop_set_uint16(DEVICE(&s->dmsc), "rx-thread", 13);
-  qdev_prop_set_uint16(DEVICE(&s->dmsc), "tx-thread", 12);
+  {
+      static const uint16_t a53_rx_threads[] = {
+          A53_0_WRITE_THREAD_ID,
+          A53_1_WRITE_THREAD_ID,
+      };
+      static const uint16_t a53_tx_threads[] = {
+          A53_0_READ_RESPONSE_THREAD_ID,
+          A53_1_READ_RESPONSE_THREAD_ID,
+      };
+      QList *rx_threads = qlist_new();
+      QList *tx_threads = qlist_new();
+
+      for (int i = 0; i < s->a53_cpus && i < ARRAY_SIZE(a53_rx_threads); i++) {
+          qlist_append_int(rx_threads, a53_rx_threads[i]);
+          qlist_append_int(tx_threads, a53_tx_threads[i]);
+      }
+      /* Keep the prior A53_2 threads for compatibility with existing guests. */
+      qlist_append_int(rx_threads, A53_2_WRITE_THREAD_ID);
+      qlist_append_int(tx_threads, A53_2_READ_RESPONSE_THREAD_ID);
+      qlist_append_int(rx_threads, M4_0_WRITE_THREAD_ID);
+      qlist_append_int(tx_threads, M4_0_READ_RESPONSE_THREAD_ID);
+
+      qdev_prop_set_array(DEVICE(&s->dmsc), "rx-threads", rx_threads);
+      qdev_prop_set_array(DEVICE(&s->dmsc), "tx-threads", tx_threads);
+  }
   qdev_prop_set_uint64(DEVICE(&s->dmsc), "m4-cpu-id", s->a53_cpus);
 
   if (!qdev_realize(DEVICE(&s->dmsc), NULL, errp)) {
@@ -983,6 +1008,10 @@ static const Property ti_am64x_properties[] = {
                      MAIN_RAM_BASE_ADDRESS),
   DEFINE_PROP_UINT64("ram-size", TIAM64xState, main_ram_size, 0),
   DEFINE_PROP_UINT8("a53-cpus", TIAM64xState, a53_cpus, TI_AM64X_A53_NUM),
+  DEFINE_PROP_BOOL("a53-start-powered-off", TIAM64xState,
+                   a53_start_powered_off, false),
+  DEFINE_PROP_BOOL("m4-start-powered-off", TIAM64xState,
+                   m4_start_powered_off, true),
 };
 
 static void ti_am64x_class_init(ObjectClass *klass, const void *data) {
