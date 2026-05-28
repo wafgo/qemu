@@ -626,6 +626,11 @@ config FSL_IMX8MP_EVK
     depends on TCG
     select FSL_IMX8MP
 
+config TI_AM64X
+    bool
+    select ARM_GIC
+    select SERIAL_MM
+
 config ARM_SMMUV3
     bool
 

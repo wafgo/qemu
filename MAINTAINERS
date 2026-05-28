@@ -1186,6 +1186,14 @@ L: qemu-arm@nongnu.org
 S: Maintained
 F: hw/arm/olimex-stm32-h405.c
 
+TI K3 AM64x
+M: Wadim Mueller <wafgo01@gmail.com>
+L: qemu-arm@nongnu.org
+S: Maintained
+F: hw/arm/am64-virt.c
+F: hw/arm/ti-am64x.c
+F: include/hw/arm/ti-am64x.h
+
 SmartFusion2
 M: Subbaraya Sundeep <sundeep.lkml@gmail.com>
 M: Peter Maydell <peter.maydell@linaro.org>
