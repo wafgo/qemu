@@ -631,6 +631,13 @@ config TI_AM64X
     select ARM_GIC
     select SERIAL_MM
 
+config AM64_VIRT
+    bool
+    default y
+    depends on AARCH64
+    depends on TCG
+    select TI_AM64X
+
 config ARM_SMMUV3
     bool
 
