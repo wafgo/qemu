@@ -442,6 +442,7 @@ config TI_AM64X
     select ARM_GIC
     select TI_MAILBOX
     select TI_RAT
+    select TI_K3_CTRLMMR
     select AM64_UART
 
 config XLNX_ZYNQMP_ARM

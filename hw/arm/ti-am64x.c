@@ -75,6 +75,7 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "rat", &s->rat, TYPE_TI_RAT);
   object_initialize_child(obj, "sec-proxy", &s->sec_proxy, TYPE_TI_SEC_PROXY);
   object_initialize_child(obj, "dmsc", &s->dmsc, TYPE_TI_DMSC);
+  object_initialize_child(obj, "ctrlmmr", &s->ctrlmmr, TYPE_TI_K3_CTRLMMR);
 
   for (int i = 0; i < TI_AM64X_A53_NUM; i++) {
       object_initialize_child(OBJECT(&s->a53_cluster), "a53[*]", &s->a53[i],
@@ -433,7 +434,6 @@ static void ti_am64_create_main_unimplemented(MemoryRegion *root)
     ADD_MAIN_UNIMP("DEBUGSS0_SYS",                         0x041000000ULL, 0x00001000ULL); /* 4 KB */
     ADD_MAIN_UNIMP("ROM0",                                 0x041800000ULL, 0x00040000ULL); /* 256 KB */
     ADD_MAIN_UNIMP("STM0_STIMULUS",                        0x042000000ULL, 0x01000000ULL); /* 16 MB */
-    ADD_MAIN_UNIMP("CTRL_MMR0_CFG0",                       0x043000000ULL, 0x00020000ULL); /* 128 KB */
     ADD_MAIN_UNIMP("CBASS0_FW0",                           0x045000000ULL, 0x00008000ULL); /* 32 KB */
     ADD_MAIN_UNIMP("CBASS_INFRA1_FW0",                     0x045008000ULL, 0x00001000ULL); /* 4 KB */
     ADD_MAIN_UNIMP("MAIN_SEC_MMR0_CFG2",                   0x045900000ULL, 0x00020000ULL); /* 128 KB */
@@ -1042,6 +1042,13 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   sysbus_connect_irq(SYS_BUS_DEVICE(&s->main_uart0), 0,
                      qdev_get_gpio_in(DEVICE(&s->gic), 178));
+
+  /* Control MMR (DEVSTAT + lock-kick sink) */
+  if (!sysbus_realize(SYS_BUS_DEVICE(&s->ctrlmmr), errp)) {
+    return;
+  }
+  memory_region_add_subregion(sysmem, 0x43000000,
+      sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->ctrlmmr), 0));
 
   ti_am64_create_mcu_unimplemented(sysmem);
   ti_am64_create_main_unimplemented(sysmem);

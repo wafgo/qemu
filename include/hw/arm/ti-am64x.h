@@ -25,6 +25,7 @@
 #include "hw/misc/ti-sec-proxy.h"
 #include "hw/misc/ti-dmsc.h"
 #include "hw/misc/ti-mailbox.h"
+#include "hw/misc/ti-k3-ctrlmmr.h"
 #include "hw/char/ti-am64-uart.h"
 
 #define TYPE_TI_AM64X "ti-am64x"
@@ -60,6 +61,7 @@ struct TIAM64xState {
     TIMailboxState mailbox[TI_AM64X_MAILBOX_NUM];
     AM64Uart mcu_uart[TI_AM64X_MCU_UART_NUM];
     AM64Uart main_uart0;
+    TIK3CtrlMmrState ctrlmmr;
     uint64_t main_ram_base;
     uint64_t main_ram_size;
     uint8_t a53_cpus;

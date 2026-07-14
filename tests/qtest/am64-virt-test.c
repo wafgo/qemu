@@ -51,11 +51,24 @@ static void test_r5f_cpu_present(void)
     qtest_quit(qts);
 }
 
+static void test_devstat(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    /* CTRLMMR_MAIN_DEVSTAT: primary bootmode = eMMC (0x9 << 3) */
+    g_assert_cmphex(qtest_readl(qts, 0x43000030), ==, 0x48);
+    /* mmr_unlock kick writes must be accepted silently */
+    qtest_writel(qts, 0x43008008, 0x68ef3490);
+    qtest_writel(qts, 0x4300800c, 0xd172bc5a);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/am64-virt/ocsram", test_ocsram_rw);
     qtest_add_func("/am64-virt/main-uart0", test_main_uart0_present);
     qtest_add_func("/am64-virt/r5f-present", test_r5f_cpu_present);
+    qtest_add_func("/am64-virt/devstat", test_devstat);
     return g_test_run();
 }

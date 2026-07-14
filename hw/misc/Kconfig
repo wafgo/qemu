@@ -135,6 +135,9 @@ config TI_DMSC
 config TI_RAT
     bool
 
+config TI_K3_CTRLMMR
+    bool
+
 config TI_SEC_PROXY
     bool
 
