@@ -47,6 +47,7 @@ config AM64_VIRT
     bool
     default y
     depends on ARM_VIRT
+    select TI_AM64X
     select TI_DMSC
     select TI_SEC_PROXY
 
