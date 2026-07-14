@@ -191,9 +191,6 @@ static void am64_virt_init(MachineState *machine)
     qdev_prop_set_uint64(soc, "ram-size", machine->ram_size);
     qdev_connect_clock_in(soc, "sysclk", sysclk);
     mcu_chardev = qemu_chr_find("uart0");
-    if (!mcu_chardev) {
-        mcu_chardev = qemu_chr_find("serial0");
-    }
     if (mcu_chardev) {
         qdev_prop_set_chr(DEVICE(&TI_AM64X(soc)->mcu_uart[0]),
                           "chardev", mcu_chardev);
