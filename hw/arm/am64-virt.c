@@ -184,9 +184,25 @@ static void am64_virt_init(MachineState *machine)
     DeviceState *gic;
     Clock *sysclk = clock_new(OBJECT(machine), "SYSCLK");
     Chardev *mcu_chardev;
+    uint8_t a53_cpus = MIN(machine->smp.cpus, TI_AM64X_A53_NUM);
+
+    /*
+     * The SoC realizes an M4 (and soon an R5F) vCPU beyond the A53s, and
+     * every vCPU needs a TCG context slot within smp.max_cpus (fixed at
+     * accelerator init, the board cannot bump it later). Fail early with
+     * a clear message instead of letting TCG assert deep inside
+     * tcg_register_thread().
+     */
+    if (machine->smp.max_cpus < a53_cpus + 2) {
+        error_report("am64-virt: -smp maxcpus=%d is too small for %d A53 "
+                     "+ M4 + R5F vCPUs; raise maxcpus (e.g. "
+                     "-smp cpus=2,maxcpus=7) or omit -smp",
+                     machine->smp.max_cpus, a53_cpus);
+        exit(1);
+    }
 
     clock_set_hz(sysclk, SYSCLK_FRQ);
-    qdev_prop_set_uint8(soc, "a53-cpus", machine->smp.cpus);
+    qdev_prop_set_uint8(soc, "a53-cpus", a53_cpus);
     qdev_prop_set_uint64(soc, "ram-base", AM64_VIRT_DRAM_BASE);
     qdev_prop_set_uint64(soc, "ram-size", machine->ram_size);
     qdev_connect_clock_in(soc, "sysclk", sysclk);
@@ -243,8 +259,14 @@ static void am64_virt_machine_class_init(ObjectClass *oc, const void *data)
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a53");
     mc->default_nic = "virtio-net-pci";
     mc->default_ram_id = "am64-virt.ram";
-    mc->default_cpus = TI_AM64X_A53_NUM;
     mc->max_cpus = TI_AM64X_A53_NUM + 4 + 1; /* + M4 + R5F */
+    /*
+     * This heterogeneous SoC realizes M4 (and soon R5F) vCPUs beyond the
+     * A53s, and every vCPU needs a TCG context slot within smp.max_cpus
+     * (fixed at accelerator init). Default to the full vCPU budget so a
+     * plain invocation with no -smp works out of the box.
+     */
+    mc->default_cpus = mc->max_cpus;
     mc->default_ram_size = 2 * GiB;
 
     object_class_property_add(oc, "m4boot-cpu", "int32",
