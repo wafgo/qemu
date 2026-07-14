@@ -163,7 +163,6 @@ static void test_parse_ok(void)
     Error *err = NULL;
 
     g_assert_true(k3_bootrom_parse(img->data, img->len, &out, &err));
-    g_assert_no_error(NULL);
     g_assert_null(err);
     g_assert_cmpuint(out.num_comps, ==, 3);
     g_assert_cmpuint(out.comps[0].comp_type, ==, K3_COMP_TYPE_SBL);
