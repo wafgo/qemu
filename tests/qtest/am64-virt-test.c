@@ -10,6 +10,7 @@
 
 #define OCSRAM_BASE 0x70000000ULL
 #define OCSRAM_SIZE (2 * 1024 * 1024)
+#define MAIN_UART0_BASE 0x02800000ULL
 
 static void test_ocsram_rw(void)
 {
@@ -26,9 +27,20 @@ static void test_ocsram_rw(void)
     qtest_quit(qts);
 }
 
+static void test_main_uart0_present(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    /* LSR of an idle 16550: transmitter empty bits set */
+    g_assert_cmphex(qtest_readl(qts, MAIN_UART0_BASE + (5 << 2)) & 0x60,
+                    ==, 0x60);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/am64-virt/ocsram", test_ocsram_rw);
+    qtest_add_func("/am64-virt/main-uart0", test_main_uart0_present);
     return g_test_run();
 }

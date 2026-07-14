@@ -56,6 +56,7 @@ struct TIAM64xState {
     TIDmscState dmsc;
     TIMailboxState mailbox[TI_AM64X_MAILBOX_NUM];
     AM64Uart mcu_uart[TI_AM64X_MCU_UART_NUM];
+    AM64Uart main_uart0;
     uint64_t main_ram_base;
     uint64_t main_ram_size;
     uint8_t a53_cpus;

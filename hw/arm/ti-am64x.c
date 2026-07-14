@@ -82,6 +82,9 @@ static void ti_am64x_initfn(Object *obj) {
       object_initialize_child(obj, "mcu-uart[*]", &s->mcu_uart[i], TYPE_AM64_UART);
   }
 
+  object_initialize_child(obj, "main-uart0", &s->main_uart0,
+                          TYPE_AM64_UART);
+
   s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
   s->refclk = qdev_init_clock_in(DEVICE(s), "refclk", NULL, NULL, 0);
   s->main_ram_base = MAIN_RAM_BASE_ADDRESS;
@@ -186,7 +189,6 @@ static void ti_am64_create_main_unimplemented(MemoryRegion *root)
     ADD_MAIN_UNIMP("TIMER11_CFG",                          0x0024B0000ULL, 0x00000400ULL);
 
 /* UARTs */
-    ADD_MAIN_UNIMP("UART0",                                0x002800000ULL, 0x00000200ULL);
     ADD_MAIN_UNIMP("UART1",                                0x002810000ULL, 0x00000200ULL);
     ADD_MAIN_UNIMP("UART2",                                0x002820000ULL, 0x00000200ULL);
     ADD_MAIN_UNIMP("UART3",                                0x002830000ULL, 0x00000200ULL);
@@ -1009,6 +1011,14 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
       }
       sysbus_connect_irq(SYS_BUS_DEVICE(&s->mcu_uart[i]), 0, qdev_get_gpio_in(DEVICE(&s->armv7m), cfg->irq_num));
   }
+
+  /* Main-domain UART0 — R5 SPL early console */
+  if (!ti_am64x_uart_realize(s, sysmem, &s->main_uart0, 0x02800000,
+                             errp)) {
+    return;
+  }
+  sysbus_connect_irq(SYS_BUS_DEVICE(&s->main_uart0), 0,
+                     qdev_get_gpio_in(DEVICE(&s->gic), 178));
 
   ti_am64_create_mcu_unimplemented(sysmem);
   ti_am64_create_main_unimplemented(sysmem);
