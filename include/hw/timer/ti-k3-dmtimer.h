@@ -11,7 +11,7 @@
 #include "hw/sysbus.h"
 #include "qom/object.h"
 
-#define TYPE_TI_K3_DMTIMER "ti.k3-dmtimer"
+#define TYPE_TI_K3_DMTIMER "ti-k3-dmtimer"
 OBJECT_DECLARE_SIMPLE_TYPE(TIK3DmTimerState, TI_K3_DMTIMER)
 
 struct TIK3DmTimerState {
