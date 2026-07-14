@@ -156,6 +156,15 @@ uint32_t ti_sec_proxy_get_msg_words(TISecProxyState *sp)
     return sp->msg_words;
 }
 
+void ti_sec_proxy_reset_thread_count(TISecProxyState *sp, uint16_t thread_id)
+{
+    if (thread_id >= ARRAY_SIZE(sp->thread_info)) {
+        return;
+    }
+
+    sp->thread_info[thread_id].num_messages = 0;
+}
+
 static const char *ti_sec_proxy_get_thread_channel_name(enum TISciThreadIds thread_id)
 {
     const char *thread_names[] = {

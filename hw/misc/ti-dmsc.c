@@ -16,11 +16,23 @@
 #include "hw/qdev-properties.h"
 #include "hw/qdev-core.h"
 #include "hw/resettable.h"
+#include "system/reset.h"
 #include "target/arm/arm-powerctl.h"
 #include "qemu/main-loop.h"
 #include "hw/misc/ti-dmsc.h"
 #include "trace.h"
 #include <stdio.h>
+
+/*
+ * The sec-proxy's per-thread slot is SEC_PROXY_MSG_MAX_WORDS words wide,
+ * but ti_sec_proxy_push_msg() always writes starting at current_message[1]
+ * (word 0 is reserved/skipped -- see hw/misc/ti-sec-proxy.c), so the real
+ * usable capacity for a pushed payload is one word less than the nominal
+ * slot size. TI_DMSC_MAX_WORDS is a DMSC-side request-size limit and is
+ * unrelated to this transport capacity; don't conflate the two.
+ */
+#define TI_DMSC_SEC_PROXY_PAYLOAD_MAX \
+    ((SEC_PROXY_MSG_MAX_WORDS - 1) * sizeof(uint32_t))
 
 static const char *ti_dmsc_proc_name_from_id(uint32_t proc_id)
 {
@@ -536,7 +548,16 @@ static size_t ti_dmsc_client_respond(TIDmscClient *client,
     if (client->secure) {
         uint32_t buf[TI_DMSC_MAX_WORDS + 1] = { 0 };
 
-        if (nbytes + sizeof(uint32_t) > sizeof(buf)) {
+        /*
+         * Guard against the *real* sec-proxy transport capacity
+         * (TI_DMSC_SEC_PROXY_PAYLOAD_MAX), not just against overflowing the
+         * local `buf` scratch array. `buf` is deliberately one word larger
+         * than TI_DMSC_MAX_WORDS, which would let this check pass for
+         * payloads the sec-proxy slot can't actually hold, silently
+         * corrupting adjacent TISecProxyThreadInfo fields in
+         * ti_sec_proxy_push_msg()'s unchecked memcpy().
+         */
+        if (nbytes + sizeof(uint32_t) > TI_DMSC_SEC_PROXY_PAYLOAD_MAX) {
             qemu_log_mask(LOG_GUEST_ERROR,
                           "ti-dmsc: secure response too large (%zu bytes), dropping\n",
                           nbytes);
@@ -546,6 +567,13 @@ static size_t ti_dmsc_client_respond(TIDmscClient *client,
         memcpy((uint8_t *)buf + sizeof(uint32_t), words, nbytes);
         return ti_sec_proxy_push_msg(s->sec_proxy, client->tx_thread_id,
                                      buf, nbytes + sizeof(uint32_t));
+    }
+
+    if (nbytes > TI_DMSC_SEC_PROXY_PAYLOAD_MAX) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: response too large (%zu bytes), dropping\n",
+                      nbytes);
+        return 0;
     }
 
     return ti_sec_proxy_push_msg(s->sec_proxy, client->tx_thread_id,
@@ -561,13 +589,28 @@ static size_t ti_dmsc_client_respond(TIDmscClient *client,
  * from the tiboot3 image, so the R5 SPL never loads it itself -- it goes
  * directly to rproc_start() -> k3_sysctrler_start(), which does a blocking
  * mbox_recv() for this message and hangs (ret = -110) if it never arrives.
- * We therefore pre-queue it at realize time so it is already waiting in the
- * response thread when the SPL first polls.
+ * We therefore (re-)queue it from ti_dmsc_reset_hold() so it is already
+ * waiting in the response thread every time the SPL polls: once for the
+ * initial cold reset (covering first boot), and again for every later
+ * "system_reset" -- ROM-boot mode re-executes the R5 SPL from scratch on
+ * reset, and it blocks in k3_sysctrler_start() again, but nothing else
+ * would re-send this message (the sec-proxy's own reset intentionally
+ * leaves thread slots untouched, see ti_sec_proxy_read_target()), so a
+ * notification already consumed on a prior boot simply stays gone.
  *
  * Framing note: for the secure R5 client ti_dmsc_client_respond() prepends
  * the usual 4-byte {u16 checksum; u16 reserved} prefix, so a bare
  * TISciMsgHdr{type=0x000A} lands exactly where u-boot's
  * struct k3_sysctrler_boot_notification_msg expects its cmd_id (offset 4).
+ *
+ * Idempotency: ti_dmsc_client_respond() -> ti_sec_proxy_push_msg()
+ * overwrites the thread's current_message unconditionally, so calling this
+ * more than once before the client ever reads it (e.g. two resets in a
+ * row) is harmless -- it just overwrites with the same content. The one
+ * thing that does need explicit care is the thread's num_messages
+ * counter: push_msg() only increments it and nothing decrements an
+ * outbound thread's counter (see ti_sec_proxy_read_target()), so it is
+ * reset to zero first to avoid unbounded growth across repeated resets.
  */
 static void ti_dmsc_send_boot_notification(TIDmscClient *client)
 {
@@ -577,6 +620,9 @@ static void ti_dmsc_send_boot_notification(TIDmscClient *client)
     notif.host = TISCI_HOST_ID_DMSC;
     notif.seq = 0;
     notif.flags = 0;
+
+    ti_sec_proxy_reset_thread_count(client->dmsc->sec_proxy,
+                                    client->tx_thread_id);
 
     if (!ti_dmsc_client_respond(client, (uint32_t *)&notif, sizeof(notif))) {
         qemu_log_mask(LOG_GUEST_ERROR,
@@ -738,8 +784,28 @@ static void ti_dmsc_reset_hold(Object *obj, ResetType type)
         memset(s->clients[i].pending_words, 0,
                sizeof(s->clients[i].pending_words));
     }
-    memset(s->msg_handler, 0, sizeof(s->msg_handler));
+    /*
+     * NOTE: s->msg_handler is intentionally *not* cleared here. It only
+     * ever holds compile-time-constant function pointers assigned once in
+     * ti_dmsc_realize() -- it carries no per-boot guest-visible state, so
+     * there is nothing to reset. Clearing it here (as an earlier version
+     * of this function did) would permanently disable every TISCI handler
+     * the moment this device's reset is actually wired into the machine's
+     * reset tree (see qemu_register_resettable() in ti_dmsc_realize()),
+     * since the very first cold reset runs right after realize.
+     */
     qemu_mutex_unlock(&s->lock);
+
+    /*
+     * Re-arm the unsolicited boot notification for every secure client.
+     * See the big comment on ti_dmsc_send_boot_notification() for why this
+     * has to happen on every reset, not just once at realize time.
+     */
+    for (uint32_t i = 0; i < s->num_clients; i++) {
+        if (s->clients[i].secure) {
+            ti_dmsc_send_boot_notification(&s->clients[i]);
+        }
+    }
 }
 
 static TISciMsgHdr ti_dmsc_set_resp_flags(TISciMsgHdr *req_hdr, int add_flags)
@@ -1175,15 +1241,18 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     ti_dmsc_init_device_states(s);
 
     /*
-     * Pre-queue the boot notification for every secure client. In practice
-     * this is the R5 SPL running as TISCI host 35 after ROM handoff, which
-     * blocks in k3_sysctrler_start() waiting for it before probing TISCI.
+     * This device has no MMIO and is realized with bus=NULL (see the file
+     * header: it's a pure QOM child of the SoC container, not attached to
+     * any qdev bus), so nothing would otherwise reset it -- neither the
+     * initial cold reset nor a later monitor/QMP "system_reset" walks a
+     * bus that ti-dmsc is on. Register it with the global reset container
+     * directly, mirroring hw/misc/vmcoreinfo.c's realize(). The boot
+     * notification is (re-)queued from ti_dmsc_reset_hold() on every
+     * reset, so this also naturally covers the very first boot (the
+     * initial cold reset runs once, right after realize, before the guest
+     * CPU starts).
      */
-    for (uint32_t i = 0; i < s->num_clients; i++) {
-        if (s->clients[i].secure) {
-            ti_dmsc_send_boot_notification(&s->clients[i]);
-        }
-    }
+    qemu_register_resettable(OBJECT(dev));
 }
 
 static void ti_dmsc_init(Object *obj)

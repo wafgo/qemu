@@ -93,4 +93,15 @@ size_t ti_sec_proxy_push_msg(TISecProxyState *sp,
                            size_t nwords);
 
 uint32_t ti_sec_proxy_get_msg_words(TISecProxyState *sp);
+
+/*
+ * Reset a thread's outstanding-message counter to zero. ti_sec_proxy_push_msg()
+ * only ever increments num_messages; nothing decrements it for an outbound
+ * thread (reading only clears it for inbound threads, see
+ * ti_sec_proxy_read_target() in ti-sec-proxy.c). Callers that need to
+ * (re-)push the same unsolicited message deterministically across
+ * multiple resets -- e.g. ti-dmsc re-arming its boot notification -- call
+ * this first so num_messages doesn't grow unboundedly.
+ */
+void ti_sec_proxy_reset_thread_count(TISecProxyState *sp, uint16_t thread_id);
 #endif
