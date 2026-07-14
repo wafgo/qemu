@@ -64,6 +64,13 @@ static void ti_am64x_initfn(Object *obj) {
 
   object_initialize_child(OBJECT(&s->m4_cluster), "armv7m", &s->armv7m,
                           TYPE_ARMV7M);
+
+  object_initialize_child(obj, "r5-cluster", &s->r5_cluster,
+                          TYPE_CPU_CLUSTER);
+  qdev_prop_set_uint32(DEVICE(&s->r5_cluster), "cluster-id", 2);
+  object_initialize_child(OBJECT(&s->r5_cluster), "r5-cpu[*]", &s->r5[0],
+                          ARM_CPU_TYPE_NAME("cortex-r5f"));
+
   object_initialize_child(obj, "gic", &s->gic, TYPE_ARM_GIC);
   object_initialize_child(obj, "rat", &s->rat, TYPE_TI_RAT);
   object_initialize_child(obj, "sec-proxy", &s->sec_proxy, TYPE_TI_SEC_PROXY);
@@ -888,6 +895,18 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
     return;
   }
 
+  /* Cortex-R5F0_0 — the AM64x boot core (runs tiboot3 / R5 SPL) */
+  object_property_set_bool(OBJECT(&s->r5[0]), "start-powered-off",
+                           s->r5_start_powered_off, &error_abort);
+  /* SPL vectors live low (image at 0x70000000), not hivecs */
+  object_property_set_bool(OBJECT(&s->r5[0]), "reset-hivecs", false,
+                           &error_abort);
+  if (!qdev_realize(DEVICE(&s->r5[0]), NULL, errp)) {
+    return;
+  }
+  CPU(&s->r5[0])->cpu_index = s->a53_cpus + 1;
+  qdev_realize(DEVICE(&s->r5_cluster), NULL, &error_abort);
+
   object_property_set_link(OBJECT(&s->rat), "window-root", OBJECT(&s->mcu_root),
                            &error_abort);
 
@@ -932,6 +951,10 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
       qlist_append_int(tx_threads, A53_2_READ_RESPONSE_THREAD_ID);
       qlist_append_int(rx_threads, M4_0_WRITE_THREAD_ID);
       qlist_append_int(tx_threads, M4_0_READ_RESPONSE_THREAD_ID);
+
+      /* R5F0_0 (R5 SPL, secure host 35): writes on thread 1, reads on 0 */
+      qlist_append_int(rx_threads, MAIN_0_R5_0_WRITE_THREAD_ID);
+      qlist_append_int(tx_threads, MAIN_0_R5_0_READ_RESPONSE_THREAD_ID);
 
       qdev_prop_set_array(DEVICE(&s->dmsc), "rx-threads", rx_threads);
       qdev_prop_set_array(DEVICE(&s->dmsc), "tx-threads", tx_threads);
@@ -1034,6 +1057,8 @@ static const Property ti_am64x_properties[] = {
                    a53_start_powered_off, false),
   DEFINE_PROP_BOOL("m4-start-powered-off", TIAM64xState,
                    m4_start_powered_off, true),
+  DEFINE_PROP_BOOL("r5-start-powered-off", TIAM64xState,
+                   r5_start_powered_off, true),
 };
 
 static void ti_am64x_class_init(ObjectClass *klass, const void *data) {

@@ -34,13 +34,16 @@ OBJECT_DECLARE_SIMPLE_TYPE(TIAM64xState, TI_AM64X)
 #define TI_AM64X_MAILBOX_NUM 8
 #define TI_AM64X_A53_NUM 2
 #define TI_AM64X_GIC_NUM_SPI 256
+#define TI_AM64X_R5_NUM 1
     
 struct TIAM64xState {
     SysBusDevice parent_obj;
     CPUClusterState a53_cluster;
     CPUClusterState m4_cluster;
+    CPUClusterState r5_cluster;
     ARMv7MState armv7m;
     ARMCPU a53[TI_AM64X_A53_NUM];
+    ARMCPU r5[TI_AM64X_R5_NUM];
     GICState gic;
     MemoryRegion mcu_iram;
     MemoryRegion mcu_dram;
@@ -62,6 +65,7 @@ struct TIAM64xState {
     uint8_t a53_cpus;
     bool a53_start_powered_off;
     bool m4_start_powered_off;
+    bool r5_start_powered_off;
 };
 
 #endif
