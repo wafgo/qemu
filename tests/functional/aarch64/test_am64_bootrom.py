@@ -93,7 +93,11 @@ class Am64BootRom(QemuSystemTest):
                 'set QEMU_TEST_TIBOOT3=<path to tiboot3.bin>')
     def test_fluxos_tiboot3(self):
         self.boot_bios(os.getenv('QEMU_TEST_TIBOOT3'))
+        # The R5 SPL banner is the primary done-criterion; the SYSFW ABI line
+        # additionally proves the DMSC boot-notification + TISCI VERSION path
+        # works end-to-end (boot then proceeds into unmodelled DDR init).
         wait_for_console_pattern(self, 'U-Boot SPL')
+        wait_for_console_pattern(self, 'SYSFW ABI:')
 
 
 if __name__ == '__main__':
