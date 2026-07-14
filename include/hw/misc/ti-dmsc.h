@@ -486,6 +486,14 @@ struct TIDmscClient {
     uint16_t rx_thread_id;
     uint16_t tx_thread_id;
     bool pending;
+    /*
+     * Secure clients (e.g. the R5 SPL running as TISCI host 35) prefix
+     * every request/response with a 4-byte {u16 checksum; u16 reserved}
+     * header on top of the plain TISciMsgHdr. The checksum is never
+     * verified by u-boot's ti_sci.c, but the extra word must still be
+     * stripped/prepended so the TISciMsgHdr lines up correctly.
+     */
+    bool secure;
     uint32_t pending_words[TI_DMSC_MAX_WORDS];
     size_t pending_nwords;
 };
@@ -503,6 +511,9 @@ struct TIDmscState {
     uint16_t *rx_thread_ids;
     uint32_t num_tx_threads;
     uint16_t *tx_thread_ids;
+    /* rx threads of clients that use the secure R5 transport framing */
+    uint32_t num_secure_rx_threads;
+    uint16_t *secure_rx_threads;
     uint64_t m4_cpu_id;    /* QEMU CPU index used for MCU M4 */
 
     uint32_t msg_words;    /* usually 16 */

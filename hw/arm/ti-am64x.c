@@ -958,6 +958,17 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
 
       qdev_prop_set_array(DEVICE(&s->dmsc), "rx-threads", rx_threads);
       qdev_prop_set_array(DEVICE(&s->dmsc), "tx-threads", tx_threads);
+
+      /*
+       * The R5 SPL runs secure after ROM handoff, so every TISCI
+       * request/response it exchanges with the DMSC carries an extra
+       * 4-byte {u16 checksum; u16 reserved} prefix. Mark its rx thread as
+       * secure so the DMSC strips/prepends that framing.
+       */
+      QList *secure_rx = qlist_new();
+
+      qlist_append_int(secure_rx, MAIN_0_R5_0_WRITE_THREAD_ID);
+      qdev_prop_set_array(DEVICE(&s->dmsc), "secure-rx-threads", secure_rx);
   }
   qdev_prop_set_uint64(DEVICE(&s->dmsc), "m4-cpu-id", s->a53_cpus);
 

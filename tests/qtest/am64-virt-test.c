@@ -63,6 +63,43 @@ static void test_devstat(void)
     qtest_quit(qts);
 }
 
+#define SP_TARGET(thread) (0x4D000000ULL + (thread) * 0x1000)
+#define SP_RT(thread)     (0x4A600000ULL + (thread) * 0x1000)
+
+static void test_dmsc_r5_version(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+    /*
+     * Secure-host TISCI VERSION request as the R5 SPL sends it:
+     * word0 = secure header {u16 checksum=0; u16 reserved=0}
+     * word1 = {u16 type=0x0002; u8 host=35; u8 seq=0xa}
+     * word2 = flags = TISCI_MSG_FLAG_AOP (0x2)
+     */
+    qtest_writel(qts, SP_TARGET(1) + 0x04, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x08, 0x0a230002);
+    qtest_writel(qts, SP_TARGET(1) + 0x0c, 0x00000002);
+    /* commit: write the last data word */
+    qtest_writel(qts, SP_TARGET(1) + 0x3c, 0x00000000);
+
+    /* response must land on RX thread 0 (message count > 0) */
+    for (int i = 0; i < 100; i++) {
+        if (qtest_readl(qts, SP_RT(0)) & 0xff) {
+            break;
+        }
+        g_usleep(10 * 1000);
+    }
+    g_assert_cmpuint(qtest_readl(qts, SP_RT(0)) & 0xff, >, 0);
+
+    /*
+     * secure hdr (word0) then TISCI hdr: type must echo 0x0002,
+     * flags word must have ACK set (bit 1)
+     */
+    g_assert_cmphex(qtest_readl(qts, SP_TARGET(0) + 0x08) & 0xffff,
+                    ==, 0x0002);
+    g_assert_cmphex(qtest_readl(qts, SP_TARGET(0) + 0x0c) & 0x2, ==, 0x2);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -70,5 +107,6 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/main-uart0", test_main_uart0_present);
     qtest_add_func("/am64-virt/r5f-present", test_r5f_cpu_present);
     qtest_add_func("/am64-virt/devstat", test_devstat);
+    qtest_add_func("/am64-virt/dmsc-r5-version", test_dmsc_r5_version);
     return g_test_run();
 }
