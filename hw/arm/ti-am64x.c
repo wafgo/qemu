@@ -900,6 +900,13 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   /* Cortex-R5F0_0 — the AM64x boot core (runs tiboot3 / R5 SPL) */
   object_property_set_bool(OBJECT(&s->r5[0]), "start-powered-off",
                            s->r5_start_powered_off, &error_abort);
+  /*
+   * The R5 SPL's lowlevel_init reads MPIDR, masks aff0 (& 0xff) and parks
+   * itself in WFI unless aff0 == 0.  Without an explicit mp-affinity the
+   * default is derived from cpu_index (nonzero here), so the boot core would
+   * park immediately.  Pin aff0 to 0 so it is recognised as the boot core.
+   */
+  object_property_set_int(OBJECT(&s->r5[0]), "mp-affinity", 0, &error_abort);
   /* SPL vectors live low (image at 0x70000000), not hivecs */
   object_property_set_bool(OBJECT(&s->r5[0]), "reset-hivecs", false,
                            &error_abort);
