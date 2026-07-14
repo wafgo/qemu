@@ -23,6 +23,7 @@ tests_aarch64_system_quick = [
 ]
 
 tests_aarch64_system_thorough = [
+  'am64_bootrom',
   'aspeed_ast2700',
   'aspeed_ast2700fc',
   'device_passthrough',

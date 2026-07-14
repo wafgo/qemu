@@ -18,12 +18,14 @@
 #include "hw/pci-host/gpex.h"
 #include "hw/pci/pci.h"
 #include "hw/arm/ti-am64x.h"
+#include "hw/arm/k3-bootrom.h"
 #include "hw/qdev-clock.h"
 #include "system/address-spaces.h"
 #include "system/system.h"
 #include "qemu/error-report.h"
 #include "chardev/char.h"
 #include "qemu/units.h"
+#include "qemu/datadir.h"
 #include "qapi/visitor.h"
 
 #define AM64_VIRT_DRAM_BASE 0x80000000ULL
@@ -220,6 +222,20 @@ static void am64_virt_init(MachineState *machine)
         qdev_prop_set_bit(soc, "m4-start-powered-off", false);
     }
 
+    if (machine->firmware && ams->m4boot_cpu >= 0) {
+        error_report("am64-virt: -bios and m4boot-cpu are mutually "
+                     "exclusive");
+        exit(1);
+    }
+    if (machine->firmware) {
+        /* ROM-boot mode: only the R5F boot core runs */
+        qdev_prop_set_bit(soc, "a53-start-powered-off", true);
+        qdev_prop_set_bit(soc, "m4-start-powered-off", true);
+        qdev_prop_set_bit(soc, "r5-start-powered-off", false);
+        qdev_prop_set_chr(DEVICE(&TI_AM64X(soc)->main_uart0),
+                          "chardev", serial_hd(0));
+    }
+
     sysbus_realize_and_unref(SYS_BUS_DEVICE(soc), &error_fatal);
     ams->soc = TI_AM64X(soc);
     gic = DEVICE(&ams->soc->gic);
@@ -228,9 +244,11 @@ static void am64_virt_init(MachineState *machine)
                                 machine->ram);
 
     am64_virt_create_uart(AM64_VIRT_UART0_BASE, AM64_VIRT_UART0_IRQ,
-                          serial_hd(0), gic);
+                          machine->firmware ? serial_hd(1) : serial_hd(0),
+                          gic);
     am64_virt_create_uart(AM64_VIRT_UART1_BASE, AM64_VIRT_UART1_IRQ,
-                          serial_hd(1), gic);
+                          machine->firmware ? serial_hd(2) : serial_hd(1),
+                          gic);
     am64_virt_create_rtc(AM64_VIRT_RTC_BASE, AM64_VIRT_RTC_IRQ, gic);
     am64_virt_create_gpio(AM64_VIRT_GPIO_BASE, AM64_VIRT_GPIO_IRQ, gic);
     am64_virt_create_flash();
@@ -245,7 +263,13 @@ static void am64_virt_init(MachineState *machine)
         error_report("am64-virt: CPU0 not realized");
         exit(1);
     }
-    if (ams->m4boot_cpu < 0) {
+    if (machine->firmware) {
+        g_autofree char *fn =
+            qemu_find_file(QEMU_FILE_TYPE_BIOS, machine->firmware);
+
+        k3_bootrom_load(ams->soc, fn ? fn : machine->firmware,
+                        &error_fatal);
+    } else if (ams->m4boot_cpu < 0) {
         arm_load_kernel(ARM_CPU(qemu_get_cpu(0)), machine, &ams->bootinfo);
     }
 }
