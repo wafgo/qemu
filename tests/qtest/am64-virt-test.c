@@ -100,6 +100,60 @@ static void test_dmsc_r5_version(void)
     qtest_quit(qts);
 }
 
+static void test_dmtimer_counts(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+    uint32_t t0, t1;
+
+    /* start: TCLR.ST (safe even if the model free-runs) */
+    qtest_writel(qts, 0x02400038, 1);
+    t0 = qtest_readl(qts, 0x0240003c);
+    qtest_clock_step(qts, 1000000); /* +1 ms virtual time */
+    t1 = qtest_readl(qts, 0x0240003c);
+    /* 20 MHz -> 1 ms = 20000 ticks */
+    g_assert_cmpuint(t1 - t0, ==, 20000);
+    qtest_quit(qts);
+}
+
+static void test_dmtimer_prescaler(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+    uint32_t t0, t1;
+
+    /*
+     * prescaler test: PTV=2, PRE_EN, AR, ST
+     * TCLR = (2<<2)|BIT(5)|BIT(1)|BIT(0) = 0x2b
+     * effective rate = 20 MHz / (2 << 2) = 20 MHz / 8
+     * 1 ms = 2500 ticks
+     */
+    qtest_writel(qts, 0x02400038, 0x2b);
+    t0 = qtest_readl(qts, 0x0240003c);
+    qtest_clock_step(qts, 1000000); /* +1 ms virtual time */
+    t1 = qtest_readl(qts, 0x0240003c);
+    g_assert_cmpuint(t1 - t0, ==, 2500);
+    qtest_quit(qts);
+}
+
+static void test_dmtimer_reconfigure(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+    uint32_t t0, t1;
+
+    /*
+     * Changing the prescaler while the timer keeps running must only
+     * affect time from the TCLR write onward, never retroactively
+     * rescale already-elapsed ticks.
+     */
+    qtest_writel(qts, 0x02400038, 1);           /* ST, no prescaler */
+    t0 = qtest_readl(qts, 0x0240003c);
+    qtest_clock_step(qts, 1000000);             /* +1 ms @ 20 MHz  */
+    qtest_writel(qts, 0x02400038, 0x2b);        /* PTV=2, PRE_EN, AR, ST */
+    qtest_clock_step(qts, 1000000);             /* +1 ms @ 2.5 MHz */
+    t1 = qtest_readl(qts, 0x0240003c);
+    g_assert_cmpuint(t1 - t0, ==, 20000 + 2500);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -108,5 +162,8 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/r5f-present", test_r5f_cpu_present);
     qtest_add_func("/am64-virt/devstat", test_devstat);
     qtest_add_func("/am64-virt/dmsc-r5-version", test_dmsc_r5_version);
+    qtest_add_func("/am64-virt/dmtimer", test_dmtimer_counts);
+    qtest_add_func("/am64-virt/dmtimer-prescaler", test_dmtimer_prescaler);
+    qtest_add_func("/am64-virt/dmtimer-reconfigure", test_dmtimer_reconfigure);
     return g_test_run();
 }

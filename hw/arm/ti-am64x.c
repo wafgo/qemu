@@ -76,6 +76,8 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "sec-proxy", &s->sec_proxy, TYPE_TI_SEC_PROXY);
   object_initialize_child(obj, "dmsc", &s->dmsc, TYPE_TI_DMSC);
   object_initialize_child(obj, "ctrlmmr", &s->ctrlmmr, TYPE_TI_K3_CTRLMMR);
+  object_initialize_child(obj, "main-timer0", &s->main_timer0,
+                          TYPE_TI_K3_DMTIMER);
 
   for (int i = 0; i < TI_AM64X_A53_NUM; i++) {
       object_initialize_child(OBJECT(&s->a53_cluster), "a53[*]", &s->a53[i],
@@ -183,7 +185,7 @@ static void ti_am64_create_main_unimplemented(MemoryRegion *root)
     ADD_MAIN_UNIMP("PDMA1_REGS",                           0x000C01000ULL, 0x00000400ULL); /* 1 KB */
 
 /* Timers */
-    ADD_MAIN_UNIMP("TIMER0_CFG",                           0x002400000ULL, 0x00000400ULL);
+    /* TIMER0_CFG (main_timer0) is realized as a device at 0x02400000 */
     ADD_MAIN_UNIMP("TIMER1_CFG",                           0x002410000ULL, 0x00000400ULL);
     ADD_MAIN_UNIMP("TIMER2_CFG",                           0x002420000ULL, 0x00000400ULL);
     ADD_MAIN_UNIMP("TIMER3_CFG",                           0x002430000ULL, 0x00000400ULL);
@@ -1060,6 +1062,13 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   memory_region_add_subregion(sysmem, 0x43000000,
       sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->ctrlmmr), 0));
+
+  /* DM Timer0 (main_timer0, 20 MHz free-running) */
+  if (!sysbus_realize(SYS_BUS_DEVICE(&s->main_timer0), errp)) {
+    return;
+  }
+  memory_region_add_subregion(sysmem, 0x02400000,
+      sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->main_timer0), 0));
 
   ti_am64_create_mcu_unimplemented(sysmem);
   ti_am64_create_main_unimplemented(sysmem);
