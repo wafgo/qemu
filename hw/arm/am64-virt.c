@@ -227,6 +227,17 @@ static void am64_virt_init(MachineState *machine)
                      "exclusive");
         exit(1);
     }
+    if (machine->firmware && machine->kernel_filename) {
+        /*
+         * ROM-boot mode (-bios) hands the boot image to k3_bootrom_load()
+         * below and never calls arm_load_kernel(), so -kernel would
+         * otherwise be silently ignored instead of doing what the user
+         * asked for. Reject the combination explicitly, mirroring the
+         * -bios/m4boot-cpu check above.
+         */
+        error_report("am64-virt: -bios and -kernel are mutually exclusive");
+        exit(1);
+    }
     if (machine->firmware) {
         /* ROM-boot mode: only the R5F boot core runs */
         qdev_prop_set_bit(soc, "a53-start-powered-off", true);
@@ -283,7 +294,14 @@ static void am64_virt_machine_class_init(ObjectClass *oc, const void *data)
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("cortex-a53");
     mc->default_nic = "virtio-net-pci";
     mc->default_ram_id = "am64-virt.ram";
-    mc->max_cpus = TI_AM64X_A53_NUM + 4 + 1; /* + M4 + R5F */
+    /*
+     * Real AM64x topology beyond the A53 cluster: 2 R5F clusters x 2 cores
+     * each (4 R5 cores total) + 1 M4 core. Only TI_AM64X_R5_NUM (1) R5 core
+     * and the single M4 are actually modeled today, so this reserves
+     * headroom in smp.max_cpus for the rest of the R5F clusters as they
+     * get implemented, rather than describing the current vCPU count.
+     */
+    mc->max_cpus = TI_AM64X_A53_NUM + 4 + 1; /* 4 R5F cores + 1 M4 */
     /*
      * This heterogeneous SoC realizes M4 (and soon R5F) vCPUs beyond the
      * A53s, and every vCPU needs a TCG context slot within smp.max_cpus
