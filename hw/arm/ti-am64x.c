@@ -113,6 +113,7 @@ static void ti_am64_create_main_unimplemented(MemoryRegion *root)
 /* 0x0000_xxxx */
     ADD_MAIN_UNIMP("PSRAMECC0_RAM",                      0x000000000ULL, 0x00000400ULL); /* 1 KB */
     ADD_MAIN_UNIMP("PADCFG_CTRL0_CFG0",                  0x0000F0000ULL, 0x00008000ULL); /* 32 KB */
+    ADD_MAIN_UNIMP("PADCFG_CTRL0_CFG1",                  0x0000F8000ULL, 0x00008000ULL); /* 32 KB */
     ADD_MAIN_UNIMP("CBASS_DBG0_ERR",                     0x000200000ULL, 0x00000400ULL); /* 1 KB */
     ADD_MAIN_UNIMP("CBASS_INFRA1_ERR",                   0x000210000ULL, 0x00000400ULL); /* 1 KB */
     ADD_MAIN_UNIMP("CBASS_FW0_ERR",                      0x000220000ULL, 0x00000400ULL); /* 1 KB */
@@ -789,6 +790,17 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
                            MCU_DRAM_SIZE);
   memory_region_add_subregion(sysmem, 0x05000000, &s->mcu_iram_sysmem);
   memory_region_add_subregion(sysmem, 0x05040000, &s->mcu_dram_sysmem);
+
+  /* Main-domain on-chip SRAM (OCSRAM / MSRAM), R5 SPL runs from here */
+  memory_region_init_ram(&s->ocsram, OBJECT(dev_soc), "am64x.ocsram",
+                         2 * MiB, &err);
+
+  if (err != NULL) {
+    error_propagate(errp, err);
+    return;
+  }
+
+  memory_region_add_subregion(sysmem, 0x70000000, &s->ocsram);
 
   /* FIXME: This is a hack to allow loading resource table via elf*/
   memory_region_add_subregion(&s->mcu_root, 0xa4100000,

@@ -48,6 +48,7 @@ struct TIAM64xState {
     MemoryRegion mcu_iram_sysmem;
     MemoryRegion mcu_dram_sysmem;
     MemoryRegion mcu_root;
+    MemoryRegion ocsram;
     Clock *sysclk;
     Clock *refclk;
     TIRATState rat;
