@@ -552,6 +552,39 @@ static size_t ti_dmsc_client_respond(TIDmscClient *client,
                                  words, nbytes);
 }
 
+/*
+ * Emit the unsolicited boot notification (TISCI_MSG_BOOT_NOTIFICATION,
+ * 0x000A) that a real DMSC/sysfw sends once on the boot host's response
+ * thread as soon as its firmware is up.
+ *
+ * On the combined-image (HS-FS) boot flow the ROM starts the sysfw straight
+ * from the tiboot3 image, so the R5 SPL never loads it itself -- it goes
+ * directly to rproc_start() -> k3_sysctrler_start(), which does a blocking
+ * mbox_recv() for this message and hangs (ret = -110) if it never arrives.
+ * We therefore pre-queue it at realize time so it is already waiting in the
+ * response thread when the SPL first polls.
+ *
+ * Framing note: for the secure R5 client ti_dmsc_client_respond() prepends
+ * the usual 4-byte {u16 checksum; u16 reserved} prefix, so a bare
+ * TISciMsgHdr{type=0x000A} lands exactly where u-boot's
+ * struct k3_sysctrler_boot_notification_msg expects its cmd_id (offset 4).
+ */
+static void ti_dmsc_send_boot_notification(TIDmscClient *client)
+{
+    TISciMsgHdr notif = { 0 };
+
+    notif.type = TISCI_MSG_BOOT_NOTIFICATION;
+    notif.host = TISCI_HOST_ID_DMSC;
+    notif.seq = 0;
+    notif.flags = 0;
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&notif, sizeof(notif))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push BOOT_NOTIFICATION into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
 /* Bottom half: handle pending message outside MMIO context */
 static void ti_dmsc_bh(void *opaque)
 {
@@ -1140,6 +1173,17 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     }
 
     ti_dmsc_init_device_states(s);
+
+    /*
+     * Pre-queue the boot notification for every secure client. In practice
+     * this is the R5 SPL running as TISCI host 35 after ROM handoff, which
+     * blocks in k3_sysctrler_start() waiting for it before probing TISCI.
+     */
+    for (uint32_t i = 0; i < s->num_clients; i++) {
+        if (s->clients[i].secure) {
+            ti_dmsc_send_boot_notification(&s->clients[i]);
+        }
+    }
 }
 
 static void ti_dmsc_init(Object *obj)
