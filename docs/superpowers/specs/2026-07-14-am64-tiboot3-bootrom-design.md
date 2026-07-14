@@ -8,7 +8,10 @@
 
 Boot an **unmodified** `tiboot3.bin` (TI AM64x combined boot image, HS-FS
 variant, as produced by the CMBlu FluxOS Yocto build for the phyCORE-AM64x)
-on the `am64-virt` / `cmblu-corenode` QEMU machines:
+on the `am64-virt` QEMU machine. ROM-boot mode (`-bios`) is wired into
+`am64-virt` only; `cmblu-corenode` is unaffected and keeps its existing
+`-kernel`/`m4boot-cpu` boot path unchanged (see "Machine integration"
+below):
 
 ```sh
 qemu-system-aarch64 -machine am64-virt -bios tiboot3.bin -serial stdio
