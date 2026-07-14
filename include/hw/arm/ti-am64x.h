@@ -63,6 +63,7 @@ struct TIAM64xState {
     AM64Uart mcu_uart[TI_AM64X_MCU_UART_NUM];
     AM64Uart main_uart0;
     TIK3CtrlMmrState ctrlmmr;
+    TIK3CtrlMmrState mcu_ctrlmmr;
     TIK3DmTimerState main_timer0;
     uint64_t main_ram_base;
     uint64_t main_ram_size;

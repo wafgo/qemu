@@ -18,6 +18,7 @@ struct TIK3CtrlMmrState {
     SysBusDevice parent_obj;
     MemoryRegion iomem;
     uint32_t devstat;
+    uint32_t rst_src;
 };
 
 #endif

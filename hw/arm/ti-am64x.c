@@ -76,6 +76,8 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "sec-proxy", &s->sec_proxy, TYPE_TI_SEC_PROXY);
   object_initialize_child(obj, "dmsc", &s->dmsc, TYPE_TI_DMSC);
   object_initialize_child(obj, "ctrlmmr", &s->ctrlmmr, TYPE_TI_K3_CTRLMMR);
+  object_initialize_child(obj, "mcu-ctrlmmr", &s->mcu_ctrlmmr,
+                          TYPE_TI_K3_CTRLMMR);
   object_initialize_child(obj, "main-timer0", &s->main_timer0,
                           TYPE_TI_K3_DMTIMER);
 
@@ -679,8 +681,10 @@ static void ti_am64_create_mcu_unimplemented(MemoryRegion *root)
                                       0x04210000, 0x200);
   create_unimplemented_device_in_root(root, "MCU_TIMEOUT0_CFG",
                                       0x04300000, 0x400);
-  create_unimplemented_device_in_root(root, "MCU_CTRL_MMR0_CFG0",
-                                      0x04500000, 0x20000);
+  /*
+   * MCU_CTRL_MMR0 is a ctrlmmr stub (realized below) so MCU_RST_SRC reads
+   * a sane warm-reset value; it is not an unimplemented window.
+   */
   create_unimplemented_device_in_root(root, "MCU_ECC_AGGR0_ECC_AGGR0",
                                       0x04700000, 0x0400);
   create_unimplemented_device_in_root(root, "MCU_CBASS0_ERR0",
@@ -1069,6 +1073,16 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   memory_region_add_subregion(sysmem, 0x43000000,
       sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->ctrlmmr), 0));
+
+  /*
+   * MCU-domain Control MMR: only MCU_RST_SRC (0x18178) is consumed, to skip
+   * the CPSW errata i2331 cold-boot reset. Default rst-src = warm reset.
+   */
+  if (!sysbus_realize(SYS_BUS_DEVICE(&s->mcu_ctrlmmr), errp)) {
+    return;
+  }
+  memory_region_add_subregion(sysmem, 0x04500000,
+      sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->mcu_ctrlmmr), 0));
 
   /* DM Timer0 (main_timer0, 20 MHz free-running) */
   if (!sysbus_realize(SYS_BUS_DEVICE(&s->main_timer0), errp)) {
