@@ -1,8 +1,8 @@
 # AM64x tiboot3 ROM-Boot Emulation — Design
 
 **Date:** 2026-07-14
-**Branch:** `cmblu/corenode` (fork `wafgo/qemu`)
-**Status:** Approved design, pre-implementation
+**Branch:** `feat/am64-tiboot3-bootrom` (fork `wafgo/qemu`)
+**Status:** Implemented (`d0123eb051..a3f0c8f28b`)
 
 ## Goal
 
@@ -160,3 +160,74 @@ Registers that the SPL does not touch stay unimplemented and log via
   running with `-d unimp` and iterating).
 - X.509 extension OIDs/field order of the combined image as produced by
   the FluxOS u-boot version.
+
+## As-built (2026-07-14)
+
+The unmodified FluxOS `tiboot3.bin` (u-boot `v2025.01-phy2`, HS-FS combined
+image, 538402 bytes) boots on `am64-virt` up to and past its `U-Boot SPL`
+banner and the `SYSFW ABI` line, then stops at DDR init as designed.
+
+### Final invocation
+
+```sh
+qemu-system-aarch64 -machine am64-virt -display none \
+    -bios tiboot3.bin -serial stdio
+```
+
+`-serial`/console semantics: in ROM-boot mode (`-bios`) `serial0` is the
+main-domain UART0 at `0x02800000` — the R5 SPL's preloader console. No
+`-smp` flags are needed (the machine sizes its own A53+M4+R5 topology).
+
+### How far boot proceeds
+
+```text
+U-Boot SPL 2025.01-00054-g6980061fa875-dirty (Feb 12 2025 - 05:47:04 +0000)
+SYSFW ABI: 4.0 (firmware rev 0x000a 'QEMU_TI_DMSC (Wadims DMSC)')
+NeoVisor: M4F started before DDR init (41596 bytes)
+...
+Unrecognized dram_class cannot init frequency!
+DRAM init failed: -22
+```
+
+The banner + `SYSFW ABI` line is the done-criterion (both reached). The SPL
+then runs the DMSC-driven M4 bring-up, fails the i2c EEPROM probe (no i2c
+model — harmless) and finally fails DDR init because the DDRSS is not
+modelled (deliberately out of scope). This is the expected stopping point.
+
+### Design deviations from the pre-implementation plan
+
+1. **No PLL/PSC stubs.** No PLL or PSC register access happens before the
+   banner: the R5 SPL device tree runs UART0 and the DM timer clock-less,
+   and clock/device management is served entirely by TISCI to the DMSC.
+   §3's "PLL MMRs" and "PSC" stub rows were therefore dropped; only the
+   DM timer stub from that table was actually needed (added as
+   `hw/misc/ti-k3-dmtimer.c`).
+2. **Boot notification is *not* queued speculatively "for the SPL to
+   maybe wait on" — this FluxOS build genuinely blocks on it.** The plan
+   (§4) hedged that u-boot might never wait; in fact the combined-image
+   (ROM-loaded-sysfw) flow goes straight to `rproc_start()` →
+   `k3_sysctrler_start()`, which does a blocking `mbox_recv()` for
+   `TISCI_MSG_BOOT_NOTIFICATION` (0x000A) and aborts with `ret = -110` if
+   it never arrives. The DMSC now pre-queues that message for every secure
+   client at realize time.
+3. **R5 boot-core MPID affinity must be pinned to 0.** The SPL's
+   `lowlevel_init` parks (WFI) any core whose `MPIDR & 0xff != 0`; the
+   QEMU R5F's default affinity (derived from `cpu_index`) is nonzero, so
+   the boot core is now given `mp-affinity = 0` explicitly.
+4. **Errata i2331 cold-boot reset is suppressed via a warm-reset
+   `MCU_RST_SRC`.** The AM64x SPL reads `CTRLMMR_MCU_RST_SRC`
+   (MCU_CTRL_MMR0 + 0x18178) and, on a cold POR (value 0) or a SW_POR,
+   issues a full device reset for the CPSW errata i2331 workaround. QEMU
+   has no such erratum, so MCU_CTRL_MMR0 is now a ctrlmmr stub reporting a
+   plain warm-reset source (`rst-src = 0x1`), which skips the reset loop.
+   (Without this the SPL loops on `SYS_RESET`, which the DMSC does not
+   implement.)
+
+### Files added/changed during acceptance (Task 9)
+
+- `hw/arm/ti-am64x.c` — pin R5 `mp-affinity = 0`; second ctrlmmr stub for
+  MCU_CTRL_MMR0 at `0x04500000` (replacing an unimplemented window).
+- `hw/misc/ti-dmsc.c` — emit the boot notification for secure clients.
+- `hw/misc/ti-k3-ctrlmmr.c` + header — configurable `MCU_RST_SRC`.
+- `tests/functional/aarch64/test_am64_bootrom.py` — the real-image test
+  now additionally asserts the `SYSFW ABI:` line.
