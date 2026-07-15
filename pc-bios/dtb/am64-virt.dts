@@ -237,14 +237,14 @@
 
 	intc@1800000 {
 		phandle = <0x8003>;
-		reg = <0x00 0x1800000 0x00 0x10000 0x00 0x1810000 0x00 0x10000>;
-		compatible = "arm,cortex-a15-gic";
+		reg = <0x00 0x1800000 0x00 0x10000
+		       0x00 0x1840000 0x00 0x40000>;
+		compatible = "arm,gic-v3";
 		ranges;
 		#size-cells = <0x02>;
 		#address-cells = <0x02>;
 		interrupt-controller;
 		#interrupt-cells = <0x03>;
-
 	};
 
 
