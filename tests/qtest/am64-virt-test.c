@@ -189,6 +189,19 @@ static void test_ddrss_stub(void)
     qtest_writel(qts, DDRSS_CFG_BASE + 0x558, 0x0);
     g_assert_cmphex(qtest_readl(qts, DDRSS_CFG_BASE + 0x558) & (1u << 25),
                     ==, 1u << 25);
+
+    /*
+     * ECC-priming BIST_DONE interrupt: INT_STATUS_MASTER bit 8 (BIST
+     * group) and INT_STATUS_BIST field bit 0 (raw bit 16 of CTL_341)
+     * must both read back set even after being cleared, or the SPL
+     * hangs forever in k3_lpddr4_bist_init_mem_region().
+     */
+    qtest_writel(qts, DDRSS_CFG_BASE + 0x538, 0x0);
+    g_assert_cmphex(qtest_readl(qts, DDRSS_CFG_BASE + 0x538) & (1u << 8),
+                    ==, 1u << 8);
+    qtest_writel(qts, DDRSS_CFG_BASE + 0x554, 0x0);
+    g_assert_cmphex(qtest_readl(qts, DDRSS_CFG_BASE + 0x554) & (1u << 16),
+                    ==, 1u << 16);
     qtest_quit(qts);
 }
 
