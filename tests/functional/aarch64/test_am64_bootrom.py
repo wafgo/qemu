@@ -127,7 +127,11 @@ class Am64BootRom(QemuSystemTest):
                          '-dtb', dtb,
                          '-append', 'console=ttyAMA0 earlycon')
         self.vm.launch()
-        wait_for_console_pattern(self, 'GICv3: ')
+        wait_for_console_pattern(
+            self,
+            'GICv3: CPU0: found redistributor 0 region '
+            '0:0x0000000001840000')
+        wait_for_console_pattern(self, 'CPU1: Booted secondary processor')
         wait_for_console_pattern(self, 'ttyAMA0')
 
 
