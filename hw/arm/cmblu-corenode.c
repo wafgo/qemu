@@ -40,6 +40,24 @@ static void cmblu_corenode_init(MachineState *machine)
 {
     DeviceState *dev;
     Clock *sysclk;
+    uint8_t required_cpus = TI_AM64X_A53_NUM + TI_AM64X_R5_NUM + 1; /* + M4 */
+
+    /*
+     * The SoC always realizes TI_AM64X_A53_NUM A53s plus an M4 and an
+     * R5F vCPU (cmblu-corenode does not forward -smp into the SoC's
+     * "a53-cpus" prop, so that count never changes), and every vCPU
+     * needs a TCG context slot within smp.max_cpus (fixed at
+     * accelerator init, the board cannot bump it later). Fail early
+     * with a clear message instead of letting TCG assert deep inside
+     * tcg_register_thread().
+     */
+    if (machine->smp.max_cpus < required_cpus) {
+        error_report("cmblu-corenode: -smp maxcpus=%d is too small for %d "
+                     "A53 + M4 + R5F vCPUs; raise maxcpus (e.g. "
+                     "-smp cpus=1,maxcpus=%d) or omit -smp",
+                     machine->smp.max_cpus, TI_AM64X_A53_NUM, required_cpus);
+        exit(1);
+    }
 
     /* This clock doesn't need migration because it is fixed-frequency */
     sysclk = clock_new(OBJECT(machine), "SYSCLK");
@@ -69,6 +87,16 @@ static void cmblu_corenode_machine_init(MachineClass *mc)
     mc->desc = "CMBlu CoreNode Solid Flow Battery Controller";
     mc->init = cmblu_corenode_init;
     mc->valid_cpu_types = valid_cpu_types;
+
+    mc->max_cpus = TI_AM64X_A53_NUM + TI_AM64X_R5_NUM + 1; /* + M4 */
+    /*
+     * The SoC realizes A53, M4 and R5F vCPUs beyond just the M4 exposed
+     * via valid_cpu_types, and every vCPU needs a TCG context slot within
+     * smp.max_cpus (fixed at accelerator init). Default to the full
+     * vCPU budget so a plain invocation with no -smp works out of the
+     * box.
+     */
+    mc->default_cpus = mc->max_cpus;
 
     /* SRAM pre-allocated as part of the SoC instantiation */
     mc->default_ram_size = 0;
