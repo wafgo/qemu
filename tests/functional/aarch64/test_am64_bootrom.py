@@ -10,8 +10,16 @@
 import os
 import struct
 
-from qemu_test import QemuSystemTest, wait_for_console_pattern
+from qemu_test import Asset, QemuSystemTest, wait_for_console_pattern
 from unittest import skipUnless
+
+# Root of the QEMU source tree, used to reach pc-bios/dtb/am64-virt.dtb:
+# that file is a checked-in convenience blob (see
+# docs/superpowers/plans/2026-07-15-am64-gicv3-migration.md), not a meson
+# build product, so it is never copied into the build directory and
+# self.build_file() cannot find it.
+SOURCE_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 
 def der(tag, payload):
@@ -98,6 +106,29 @@ class Am64BootRom(QemuSystemTest):
         # works end-to-end (boot then proceeds into unmodelled DDR init).
         wait_for_console_pattern(self, 'U-Boot SPL')
         wait_for_console_pattern(self, 'SYSFW ABI:')
+
+    # Standalone arm64 kernel (Ubuntu bionic-updates netboot installer),
+    # same Asset used by test_xlnx_versal.py.  It ships PL011 + GICv3
+    # drivers but no built-in initramfs, so after console init it will
+    # panic trying to mount a root filesystem -- expected, we only care
+    # about the GICv3 + console milestones reached before that point.
+    ASSET_KERNEL = Asset(
+        ('http://ports.ubuntu.com/ubuntu-ports/dists/bionic-updates/main/'
+         'installer-arm64/20101020ubuntu543.19/images/netboot/'
+         'ubuntu-installer/arm64/linux'),
+        'ce54f74ab0b15cfd13d1a293f2d27ffd79d8a85b7bb9bf21093ae9513864ac79')
+
+    def test_linux_gicv3(self):
+        kernel_path = self.ASSET_KERNEL.fetch()
+        dtb = os.path.join(SOURCE_DIR, 'pc-bios', 'dtb', 'am64-virt.dtb')
+        self.set_machine('am64-virt')
+        self.vm.set_console()
+        self.vm.add_args('-kernel', kernel_path,
+                         '-dtb', dtb,
+                         '-append', 'console=ttyAMA0 earlycon')
+        self.vm.launch()
+        wait_for_console_pattern(self, 'GICv3: ')
+        wait_for_console_pattern(self, 'ttyAMA0')
 
 
 if __name__ == '__main__':
