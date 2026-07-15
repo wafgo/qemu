@@ -114,7 +114,7 @@ class Am64BootRom(QemuSystemTest):
     @skipUnless(os.getenv('QEMU_TEST_WIC'),
                 'set QEMU_TEST_WIC=<path to fluxos.wic>')
     def test_fluxos_spl_loads_tispl(self):
-        wic = os.getenv('QEMU_TEST_WIC')
+        wic = os.path.abspath(os.getenv('QEMU_TEST_WIC'))
 
         # QEMU's sd-card device rejects raw images whose size is not a
         # 512 KiB multiple (see hw/sd/sd.c); a real FluxOS WIC generally

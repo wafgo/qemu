@@ -1038,7 +1038,7 @@ static void ti_dmsc_start_proc(TIDmscClient *client,
 }
 
 /*
- * TISCI_MSG_PROC_HANDOVER (0x9010): bare-header ACK. u-boot's
+ * TISCI_MSG_PROC_HANDOVER (0xc005): bare-header ACK. u-boot's
  * ti_sci_proc_release() (drivers/remoteproc/ti_sci_proc.h) calls this
  * instead of PROC_RELEASE whenever the rproc node has a valid
  * ti,sci-host-id (e.g. the a53 rproc node hands the A53 cluster's proc_id
