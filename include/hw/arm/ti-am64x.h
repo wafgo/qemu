@@ -18,7 +18,7 @@
 #include "hw/arm/armv7m.h"
 #include "cpu.h"
 #include "hw/cpu/cluster.h"
-#include "hw/intc/arm_gic.h"
+#include "hw/intc/arm_gicv3.h"
 #include "hw/clock.h"
 #include "qom/object.h"
 #include "hw/misc/ti-rat.h"
@@ -46,7 +46,7 @@ struct TIAM64xState {
     ARMv7MState armv7m;
     ARMCPU a53[TI_AM64X_A53_NUM];
     ARMCPU r5[TI_AM64X_R5_NUM];
-    GICState gic;
+    GICv3State gic;
     MemoryRegion mcu_iram;
     MemoryRegion mcu_dram;
     MemoryRegion mcu_ddr;

@@ -154,6 +154,23 @@ static void test_dmtimer_reconfigure(void)
     qtest_quit(qts);
 }
 
+#define GICD_BASE 0x01800000ULL
+#define GICR_BASE 0x01840000ULL
+#define GIC_PIDR2 0xffe8
+
+static void test_gicv3_present(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    /* GICD_PIDR2.ArchRev must identify a GICv3 distributor */
+    g_assert_cmphex((qtest_readl(qts, GICD_BASE + GIC_PIDR2) >> 4) & 0xf,
+                    ==, 3);
+    /* first redistributor frame at the real AM64x GICR base */
+    g_assert_cmphex((qtest_readl(qts, GICR_BASE + GIC_PIDR2) >> 4) & 0xf,
+                    ==, 3);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -165,5 +182,6 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/dmtimer", test_dmtimer_counts);
     qtest_add_func("/am64-virt/dmtimer-prescaler", test_dmtimer_prescaler);
     qtest_add_func("/am64-virt/dmtimer-reconfigure", test_dmtimer_reconfigure);
+    qtest_add_func("/am64-virt/gicv3", test_gicv3_present);
     return g_test_run();
 }

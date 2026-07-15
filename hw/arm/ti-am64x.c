@@ -20,7 +20,7 @@
 #include "qapi/error.h"
 #include "hw/char/ti-am64-uart.h"
 #include "hw/misc/ti-sec-proxy.h"
-#include "hw/intc/arm_gic.h"
+#include "hw/intc/arm_gicv3.h"
 
 #include "qobject/qlist.h"
 #include "qemu/units.h"
@@ -39,8 +39,8 @@
 #define MAIN_MAILBOX_STRIDE 0x00010000ULL
 #define MAIN_RAM_BASE_ADDRESS 0x80000000ULL
 /* AM64 TRM: GICSS0_GIC at 0x001800000 (1MB window). */
-#define MAIN_GIC_DIST_ADDRESS 0x001800000ULL
-#define MAIN_GIC_CPU_ADDRESS  0x001810000ULL
+#define MAIN_GIC_DIST_ADDRESS   0x01800000ULL
+#define MAIN_GIC_REDIST_ADDRESS 0x01840000ULL /* GIC-500 GICR, per TRM/DT */
 
 #define MCU_IRAM_SIZE (192 * 1024)
 #define MCU_IRAM_BASE_ADDRESS 0x00000000
@@ -71,7 +71,7 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(OBJECT(&s->r5_cluster), "r5-cpu[*]", &s->r5[0],
                           ARM_CPU_TYPE_NAME("cortex-r5f"));
 
-  object_initialize_child(obj, "gic", &s->gic, TYPE_ARM_GIC);
+  object_initialize_child(obj, "gic", &s->gic, TYPE_ARM_GICV3);
   object_initialize_child(obj, "rat", &s->rat, TYPE_TI_RAT);
   object_initialize_child(obj, "sec-proxy", &s->sec_proxy, TYPE_TI_SEC_PROXY);
   object_initialize_child(obj, "dmsc", &s->dmsc, TYPE_TI_DMSC);
@@ -842,35 +842,43 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   {
     DeviceState *gicdev = DEVICE(&s->gic);
     SysBusDevice *gicsbd = SYS_BUS_DEVICE(&s->gic);
+    QList *redist_region_count;
 
-    qdev_prop_set_uint32(gicdev, "revision", 2);
+    qdev_prop_set_uint32(gicdev, "revision", 3);
     qdev_prop_set_uint32(gicdev, "num-cpu", s->a53_cpus);
     qdev_prop_set_uint32(gicdev, "num-irq",
                          TI_AM64X_GIC_NUM_SPI + GIC_INTERNAL);
-    qdev_prop_set_bit(gicdev, "has-security-extensions", false);
-    qdev_prop_set_bit(gicdev, "has-virtualization-extensions", false);
+    qdev_prop_set_bit(gicdev, "has-security-extensions", true);
+    redist_region_count = qlist_new();
+    qlist_append_int(redist_region_count, s->a53_cpus);
+    qdev_prop_set_array(gicdev, "redist-region-count", redist_region_count);
 
     if (!sysbus_realize(gicsbd, errp)) {
       return;
     }
     sysbus_mmio_map(gicsbd, 0, MAIN_GIC_DIST_ADDRESS);
-    sysbus_mmio_map(gicsbd, 1, MAIN_GIC_CPU_ADDRESS);
+    sysbus_mmio_map(gicsbd, 1, MAIN_GIC_REDIST_ADDRESS);
 
     for (int i = 0; i < s->a53_cpus; i++) {
       DeviceState *cpudev = DEVICE(&s->a53[i]);
-      int intidbase = TI_AM64X_GIC_NUM_SPI + i * GIC_INTERNAL;
+      int ppibase = TI_AM64X_GIC_NUM_SPI + i * GIC_INTERNAL + GIC_NR_SGIS;
       const int timer_irq[] = {
-          [GTIMER_PHYS] = ARCH_TIMER_NS_EL1_IRQ,
-          [GTIMER_VIRT] = ARCH_TIMER_VIRT_IRQ,
-          [GTIMER_HYP]  = ARCH_TIMER_NS_EL2_IRQ,
-          [GTIMER_SEC]  = ARCH_TIMER_S_EL1_IRQ,
+          [GTIMER_PHYS] = INTID_TO_PPI(ARCH_TIMER_NS_EL1_IRQ),
+          [GTIMER_VIRT] = INTID_TO_PPI(ARCH_TIMER_VIRT_IRQ),
+          [GTIMER_HYP]  = INTID_TO_PPI(ARCH_TIMER_NS_EL2_IRQ),
+          [GTIMER_SEC]  = INTID_TO_PPI(ARCH_TIMER_S_EL1_IRQ),
       };
 
       for (int j = 0; j < ARRAY_SIZE(timer_irq); j++) {
         qdev_connect_gpio_out(cpudev, j,
                               qdev_get_gpio_in(gicdev,
-                                               intidbase + timer_irq[j]));
+                                               ppibase + timer_irq[j]));
       }
+      qdev_connect_gpio_out_named(cpudev, "gicv3-maintenance-interrupt",
+                                  0,
+                                  qdev_get_gpio_in(gicdev,
+                                      ppibase +
+                                      INTID_TO_PPI(ARCH_GIC_MAINT_IRQ)));
 
       sysbus_connect_irq(gicsbd, i,
                          qdev_get_gpio_in(cpudev, ARM_CPU_IRQ));
