@@ -428,6 +428,7 @@ dmsc_handle_set_clock(const char *type, const char *host_name, const char *devic
 dmsc_handle_get_device(const char *type, const char *host_name, const char *device_name, uint8_t prog_state, uint8_t current_state) "%s received from host %s, device %s, response: prog_state: %i, current_state: %i"
 dmsc_handle_get_clock(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
 dmsc_handle_get_clock_parents(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
+dmsc_handle_set_clock_parent(const char *type, const char *host_name, const char *device_name, uint8_t clk_id, uint8_t parent_id) "%s received from host %s, device %s, clk_id %u, parent_id %u"
 dmsc_handle_query_freq(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32, uint64_t target_freq) "%s received from host %s, device %s, clk %u, clk32 %u, target_frequency %"PRIu64
 dmsc_handle_get_freq(const char *type, const char *host_name, const char *device_name, uint8_t clk) "%s received from host %s, device %s, clk %u"
 dmsc_handle_proc_set_config(const char *type, const char *host_name) "%s received from host %s"
@@ -441,6 +442,7 @@ dmsc_get_version(const char* msg, const char *host, const char *description) "Ge
 dmsc_get_fw_caps(const char* msg, const char *host) "Get FW Caps Request received %s from host %s"
 dmsc_start_proc(const char* proc_name, int proc_id, const char *host) "Requested to start Processor %s (%i) from host %s"
 dmsc_stop_proc(const char* proc_name, int proc_id, const char *host) "Requested to stop Processor %s (%i) from host %s"
+dmsc_handover_proc(const char* proc_name, int proc_id, const char *new_host, const char *host) "Requested to hand over Processor %s (%i) to host %s, from host %s"
 
 # ti-rat.c
 rat_enable_region(int idx, uint64_t size, uint64_t source, uint64_t dest) "Enabling RAT Region %u: size 0x%"PRIx64" map 0x%"PRIx64" -> 0x%"PRIx64

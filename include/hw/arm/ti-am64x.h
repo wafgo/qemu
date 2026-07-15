@@ -68,6 +68,7 @@ struct TIAM64xState {
     AM64Uart main_uart0;
     TIK3CtrlMmrState ctrlmmr;
     TIK3CtrlMmrState mcu_ctrlmmr;
+    TIK3CtrlMmrState sec_ctrlmmr;
     TIK3DdrssState ddrss;
     TIK3DmTimerState main_timer0;
     SDHCIState sdhci[TI_AM64X_SDHCI_NUM];

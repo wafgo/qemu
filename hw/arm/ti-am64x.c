@@ -78,6 +78,8 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "ctrlmmr", &s->ctrlmmr, TYPE_TI_K3_CTRLMMR);
   object_initialize_child(obj, "mcu-ctrlmmr", &s->mcu_ctrlmmr,
                           TYPE_TI_K3_CTRLMMR);
+  object_initialize_child(obj, "sec-ctrlmmr", &s->sec_ctrlmmr,
+                          TYPE_TI_K3_CTRLMMR);
   object_initialize_child(obj, "ddrss", &s->ddrss, TYPE_TI_K3_DDRSS);
   object_initialize_child(obj, "main-timer0", &s->main_timer0,
                           TYPE_TI_K3_DMTIMER);
@@ -1102,6 +1104,21 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   memory_region_add_subregion(sysmem, 0x04500000,
       sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->mcu_ctrlmmr), 0));
+
+  /*
+   * Security-Manager Control MMR: only K3_SEC_MGR_SYS_STATUS (0x100, i.e.
+   * absolute 0x44234100) is consumed, by u-boot's get_device_type() while
+   * SPL post-processes tispl.bin's FIT images. Without this stub the read
+   * hits unmapped memory: an external abort escalates into a double
+   * Prefetch Abort on the R5 (low vectors are unmapped too) and the core
+   * freezes at PC=0xc. Default decodes to SYS_STATUS_DEV_TYPE_GP so u-boot
+   * takes the non-secure path.
+   */
+  if (!sysbus_realize(SYS_BUS_DEVICE(&s->sec_ctrlmmr), errp)) {
+    return;
+  }
+  memory_region_add_subregion(sysmem, 0x44234000,
+      sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sec_ctrlmmr), 0));
 
   /* DDRSS config register-file stub (RAM-backed, status bits OR-ed) */
   if (!sysbus_realize(SYS_BUS_DEVICE(&s->ddrss), errp)) {

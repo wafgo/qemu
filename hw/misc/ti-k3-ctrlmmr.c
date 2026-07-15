@@ -2,7 +2,9 @@
  * TI K3 CTRL_MMR stub
  *
  * Minimal model of the AM64x main-domain control MMRs: returns a
- * configurable MAIN_DEVSTAT (boot-mode pins) at offset 0x30 and accepts
+ * configurable MAIN_DEVSTAT (boot-mode pins) at offset 0x30, a configurable
+ * MCU_RST_SRC at offset 0x18178 (mcu-ctrlmmr instance) and a configurable
+ * K3_SEC_MGR_SYS_STATUS at offset 0x100 (sec-ctrlmmr instance), and accepts
  * (ignores) all writes, so u-boot's mmr_unlock() kick sequences succeed.
  * Everything else reads as zero.
  *
@@ -17,6 +19,16 @@
 
 #define CTRLMMR_MAIN_DEVSTAT 0x30
 #define CTRLMMR_MCU_RST_SRC  0x18178
+/*
+ * Offset of K3_SEC_MGR_SYS_STATUS within the sec-ctrlmmr instance mapped at
+ * 0x44234000, i.e. absolute address 0x44234100. u-boot's get_device_type()
+ * (arch/arm/mach-k3/common.c) reads this during FIT image post-processing
+ * (board_fit_image_post_process(), called while SPL parses tispl.bin) to
+ * decide GP vs HS-FS/HS-SE handling; on real silicon this lives in the
+ * Security Manager MMR partition. QEMU has no security manager, so this
+ * offset is only meaningful on the sec-ctrlmmr instance.
+ */
+#define CTRLMMR_SEC_MGR_SYS_STATUS 0x100
 #define CTRLMMR_SIZE 0x20000 /* partitions 0-7 */
 
 static uint64_t ti_k3_ctrlmmr_read(void *opaque, hwaddr addr, unsigned size)
@@ -28,6 +40,9 @@ static uint64_t ti_k3_ctrlmmr_read(void *opaque, hwaddr addr, unsigned size)
     }
     if (addr == CTRLMMR_MCU_RST_SRC) {
         return s->rst_src;
+    }
+    if (addr == CTRLMMR_SEC_MGR_SYS_STATUS) {
+        return s->sec_mgr_sys_status;
     }
     qemu_log_mask(LOG_UNIMP,
                   "%s: unimplemented read @0x%" HWADDR_PRIx "\n",
@@ -69,6 +84,15 @@ static const Property ti_k3_ctrlmmr_properties[] = {
      * reset source (bit 0, no POR bits) to skip that reset loop.
      */
     DEFINE_PROP_UINT32("rst-src", TIK3CtrlMmrState, rst_src, 0x1),
+    /*
+     * K3_SEC_MGR_SYS_STATUS (sec-ctrlmmr instance only). Default decodes to
+     * SYS_STATUS_DEV_TYPE_GP (0x3 in bits[3:0]) so u-boot's get_device_type()
+     * takes the General Purpose (non-secure) path: no TIFS/certificate
+     * authentication is attempted, matching a QEMU model with no security
+     * manager.
+     */
+    DEFINE_PROP_UINT32("sec-mgr-sys-status", TIK3CtrlMmrState,
+                       sec_mgr_sys_status, 0x3),
 };
 
 static void ti_k3_ctrlmmr_class_init(ObjectClass *klass, const void *data)

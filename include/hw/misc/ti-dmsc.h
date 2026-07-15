@@ -349,6 +349,17 @@ struct TiSciMsgReqProcRelease {
 	uint8_t processor_id;
 } QEMU_PACKED;
 
+/*
+ * TISCI_MSG_PROC_HANDOVER request, mirrors u-boot's
+ * struct ti_sci_msg_req_proc_handover. Response is a bare generic
+ * ACK/NACK (TISciMsgHdr), no dedicated response struct needed.
+ */
+struct TiSciMsgReqProcHandover {
+    TISciMsgHdr hdr;
+    uint8_t processor_id;
+    uint8_t host_id;
+} QEMU_PACKED;
+
 #define TISCI_MSG_VAL_PROC_BOOT_STATUS_FLAG_M4F_WFI    (0x00000002U)
 
 struct TisciMsgProcGetStatusReq {
@@ -457,6 +468,18 @@ struct TisciMsgGetNumClockParentsResp {
     TISciMsgHdr         hdr;
     uint8_t            num_parents;
     uint32_t            num_parentint32_t;
+} QEMU_PACKED;
+
+/*
+ * TISCI_MSG_SET_CLOCK_PARENT (0x0102) request, mirrors u-boot's
+ * struct ti_sci_msg_req_set_clock_parent. Response is a bare generic
+ * ACK/NACK (TISciMsgHdr), no dedicated response struct needed.
+ */
+struct TisciMsgSetClockParentReq {
+    TISciMsgHdr         hdr;
+    uint32_t            dev_id;
+    uint8_t             clk_id;
+    uint8_t             parent_id;
 } QEMU_PACKED;
 
 struct TisciMsgGetClockReq {

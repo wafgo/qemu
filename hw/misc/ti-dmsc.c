@@ -834,6 +834,37 @@ static void ti_dmsc_handle_set_clock(TIDmscClient *client, TISciMsgHdr *hdr,
 
 }
 
+/*
+ * TISCI_MSG_SET_CLOCK_PARENT (0x0102): bare-header ACK. u-boot's
+ * ti_sci_cmd_clk_set_parent() (drivers/firmware/ti_sci.c) only checks the
+ * generic ACK/NACK flag on the response, so no payload is needed. Without
+ * this handler the message falls through to the unknown-type NAK path in
+ * ti_dmsc_handle_one(), and clk_set_parent() -- called from rproc_init()
+ * while probing the a53 rproc node's "gtc" clock -- fails, which panics the
+ * R5 SPL in jump_to_image_no_args() before it ever reaches rproc_load().
+ */
+static void ti_dmsc_handle_set_clock_parent(TIDmscClient *client,
+                                            TISciMsgHdr *hdr,
+                                            uint16_t thread_id,
+                                            const uint32_t *words,
+                                            size_t nwords)
+{
+    struct TisciMsgSetClockParentReq *req =
+        (struct TisciMsgSetClockParentReq *)words;
+    TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);
+
+    trace_dmsc_handle_set_clock_parent(ti_dmsc_message_name_from_id(hdr->type),
+                                       ti_dmsc_host_name_from_id(hdr->host),
+                                       ti_dmsc_device_name_from_id(req->dev_id),
+                                       req->clk_id, req->parent_id);
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push SET_CLOCK_PARENT response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
 static void ti_dmsc_handle_set_freq(TIDmscClient *client, TISciMsgHdr *hdr,
                                     uint16_t thread_id, const uint32_t *words,
                                     size_t nwords)
@@ -914,11 +945,24 @@ static void ti_dmsc_handle_get_clock_parents(TIDmscClient *client,
     struct TisciMsgGetNumClockParentsResp resp = { 0 };
 
     trace_dmsc_handle_get_clock_parents(ti_dmsc_message_name_from_id(hdr->type), ti_dmsc_host_name_from_id(hdr->host), ti_dmsc_device_name_from_id(req->device), req->clk, req->clk32);
-    
+
     resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
-    resp.num_parents = 1;
+    /*
+     * u-boot's ti_sci_clk_set_parent() (drivers/clk/ti/clk-sci.c) rejects
+     * *any* clk_set_parent() call with -EINVAL unless num_parents >= 2 --
+     * it treats a single-parent clock as fixed and refuses to touch it.
+     * DT nodes only carry assigned-clock-parents for clocks that genuinely
+     * are software-selectable on real silicon (e.g. the a53 rproc node's
+     * "gtc" clock, k3_clks 61 0 -> parent k3_clks 61 2), so a generic reply
+     * of 1 breaks every such clock. This stub does not model per-clock
+     * parent topology, so report the minimum value (2) that lets
+     * clk_set_parent() proceed for whichever parent index the caller asks
+     * for, instead of hanging the R5 SPL's rproc_init() with
+     * "clock has no settable parents!".
+     */
+    resp.num_parents = 2;
     resp.num_parentint32_t = UINT_MAX;
-    
+
     if (!ti_dmsc_client_respond(client,
                                (uint32_t *)&resp, sizeof(resp))) {
         qemu_log_mask(LOG_GUEST_ERROR,
@@ -991,6 +1035,39 @@ static void ti_dmsc_start_proc(TIDmscClient *client,
     }
 
 
+}
+
+/*
+ * TISCI_MSG_PROC_HANDOVER (0x9010): bare-header ACK. u-boot's
+ * ti_sci_proc_release() (drivers/remoteproc/ti_sci_proc.h) calls this
+ * instead of PROC_RELEASE whenever the rproc node has a valid
+ * ti,sci-host-id (e.g. the a53 rproc node hands the A53 cluster's proc_id
+ * over to TISCI_HOST_ID_A53_0). This is the last TISCI step in
+ * k3_arm64_start() -> rproc_start(1), called right after the R5 SPL prints
+ * "Starting ATF on ARM64 core...". Without a handler here it falls
+ * through to the unknown-type NAK path and jump_to_image_no_args() panics
+ * with "ATF failed to start on rproc (-19)". Like PROC_RELEASE/
+ * PROC_REQUEST above, no host-ownership state is modeled -- just ACK.
+ */
+static void ti_dmsc_handover_proc(TIDmscClient *client, TISciMsgHdr *hdr,
+                                  uint16_t thread_id, const uint32_t *words,
+                                  size_t nwords)
+{
+    struct TiSciMsgReqProcHandover *req =
+        (struct TiSciMsgReqProcHandover *)words;
+    TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);
+
+    trace_dmsc_handover_proc(ti_dmsc_proc_name_from_id(req->processor_id),
+                             req->processor_id,
+                             ti_dmsc_host_name_from_id(req->host_id),
+                             ti_dmsc_host_name_from_id(hdr->host));
+
+    if (!ti_dmsc_client_respond(client,
+                               (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push PROC_HANDOVER response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
 }
 
 static void ti_dmsc_query_hw_caps(TIDmscClient *client,
@@ -1270,6 +1347,7 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
 
     s->msg_handler[TISCI_MSG_PROC_RELEASE] = ti_dmsc_stop_proc;
     s->msg_handler[TISCI_MSG_PROC_REQUEST] = ti_dmsc_start_proc;
+    s->msg_handler[TISCI_MSG_PROC_HANDOVER] = ti_dmsc_handover_proc;
     s->msg_handler[TISCI_MSG_QUERY_FW_CAPS] = ti_dmsc_query_hw_caps;
     s->msg_handler[TISCI_MSG_VERSION] = ti_dmsc_get_version;
     s->msg_handler[TISCI_MSG_GET_DEVICE] = ti_dmsc_handle_get_device;
@@ -1280,6 +1358,8 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     s->msg_handler[TISCI_MSG_GET_CLOCK] = ti_dmsc_handle_get_clock;
     s->msg_handler[TISCI_MSG_SET_CLOCK] = ti_dmsc_handle_set_clock;
     s->msg_handler[TISCI_MSG_GET_NUM_CLOCK_PARENTS] = ti_dmsc_handle_get_clock_parents;
+    s->msg_handler[TISCI_MSG_SET_CLOCK_PARENT] =
+        ti_dmsc_handle_set_clock_parent;
     s->msg_handler[TISCI_MSG_QUERY_FREQ] = ti_dmsc_handle_query_freq;
     s->msg_handler[TISCI_MSG_GET_FREQ] = ti_dmsc_handle_get_freq;
     s->msg_handler[TISCI_MSG_SET_FREQ] = ti_dmsc_handle_set_freq;

@@ -19,6 +19,7 @@ struct TIK3CtrlMmrState {
     MemoryRegion iomem;
     uint32_t devstat;
     uint32_t rst_src;
+    uint32_t sec_mgr_sys_status;
 };
 
 #endif
