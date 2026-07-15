@@ -63,6 +63,7 @@ static void test_devstat(void)
     qtest_quit(qts);
 }
 
+#define DDRSS_CFG_BASE    0x0f308000ULL
 #define SP_TARGET(thread) (0x4D000000ULL + (thread) * 0x1000)
 #define SP_RT(thread)     (0x4A600000ULL + (thread) * 0x1000)
 
@@ -171,6 +172,26 @@ static void test_gicv3_present(void)
     qtest_quit(qts);
 }
 
+static void test_ddrss_stub(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    /* RAM-backed: config writes persist (DENALI_CTL_0, dram_class DDR4) */
+    qtest_writel(qts, DDRSS_CFG_BASE + 0x0, 0x00000A00);
+    g_assert_cmphex(qtest_readl(qts, DDRSS_CFG_BASE + 0x0), ==, 0x00000A00);
+
+    /* status offsets OR-in their done bits even after being overwritten */
+    qtest_writel(qts, DDRSS_CFG_BASE + 0x214C, 0x0);
+    g_assert_cmphex(qtest_readl(qts, DDRSS_CFG_BASE + 0x214C) & 0x1, ==, 0x1);
+    qtest_writel(qts, DDRSS_CFG_BASE + 0x538, 0x0);
+    g_assert_cmphex(qtest_readl(qts, DDRSS_CFG_BASE + 0x538) & (1u << 13),
+                    ==, 1u << 13);
+    qtest_writel(qts, DDRSS_CFG_BASE + 0x558, 0x0);
+    g_assert_cmphex(qtest_readl(qts, DDRSS_CFG_BASE + 0x558) & (1u << 25),
+                    ==, 1u << 25);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -183,5 +204,6 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/dmtimer-prescaler", test_dmtimer_prescaler);
     qtest_add_func("/am64-virt/dmtimer-reconfigure", test_dmtimer_reconfigure);
     qtest_add_func("/am64-virt/gicv3", test_gicv3_present);
+    qtest_add_func("/am64-virt/ddrss-stub", test_ddrss_stub);
     return g_test_run();
 }

@@ -78,6 +78,7 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "ctrlmmr", &s->ctrlmmr, TYPE_TI_K3_CTRLMMR);
   object_initialize_child(obj, "mcu-ctrlmmr", &s->mcu_ctrlmmr,
                           TYPE_TI_K3_CTRLMMR);
+  object_initialize_child(obj, "ddrss", &s->ddrss, TYPE_TI_K3_DDRSS);
   object_initialize_child(obj, "main-timer0", &s->main_timer0,
                           TYPE_TI_K3_DMTIMER);
 
@@ -224,7 +225,6 @@ static void ti_am64_create_main_unimplemented(MemoryRegion *root)
     ADD_MAIN_UNIMP("SERDES_10G0",                          0x00F000000ULL, 0x00010000ULL); /* 64 KB */
     /* PCIe core config space is used for ECAM; avoid shadowing it here. */
     ADD_MAIN_UNIMP("DDR16SS0_SS_CFG",                      0x00F300000ULL, 0x00000200ULL); /* 512 B */
-    ADD_MAIN_UNIMP("DDR16SS0_CTL_CFG",                     0x00F308000ULL, 0x00008000ULL); /* 32 KB */
     ADD_MAIN_UNIMP("USB0_MMR_MMRVBP_USBSS_CMN0",           0x00F900000ULL, 0x00000100ULL);
     ADD_MAIN_UNIMP("USB0_RAMS_INJ_CFG",                    0x00F901000ULL, 0x00000400ULL);
     ADD_MAIN_UNIMP("USB0_PHY2",                            0x00F908000ULL, 0x00000400ULL);
@@ -1091,6 +1091,13 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   memory_region_add_subregion(sysmem, 0x04500000,
       sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->mcu_ctrlmmr), 0));
+
+  /* DDRSS config register-file stub (RAM-backed, status bits OR-ed) */
+  if (!sysbus_realize(SYS_BUS_DEVICE(&s->ddrss), errp)) {
+    return;
+  }
+  memory_region_add_subregion(sysmem, 0x0f308000,
+      sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->ddrss), 0));
 
   /* DM Timer0 (main_timer0, 20 MHz free-running) */
   if (!sysbus_realize(SYS_BUS_DEVICE(&s->main_timer0), errp)) {

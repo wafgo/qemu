@@ -26,6 +26,7 @@
 #include "hw/misc/ti-dmsc.h"
 #include "hw/misc/ti-mailbox.h"
 #include "hw/misc/ti-k3-ctrlmmr.h"
+#include "hw/misc/ti-k3-ddrss.h"
 #include "hw/char/ti-am64-uart.h"
 #include "hw/timer/ti-k3-dmtimer.h"
 
@@ -64,6 +65,7 @@ struct TIAM64xState {
     AM64Uart main_uart0;
     TIK3CtrlMmrState ctrlmmr;
     TIK3CtrlMmrState mcu_ctrlmmr;
+    TIK3DdrssState ddrss;
     TIK3DmTimerState main_timer0;
     uint64_t main_ram_base;
     uint64_t main_ram_size;

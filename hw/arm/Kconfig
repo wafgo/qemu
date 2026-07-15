@@ -444,6 +444,7 @@ config TI_AM64X
     select TI_MAILBOX
     select TI_RAT
     select TI_K3_CTRLMMR
+    select TI_K3_DDRSS
     select TI_K3_DMTIMER
     select AM64_UART
 
