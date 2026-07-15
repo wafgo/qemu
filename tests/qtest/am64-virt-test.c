@@ -101,6 +101,49 @@ static void test_dmsc_r5_version(void)
     qtest_quit(qts);
 }
 
+static void test_dmsc_r5_get_freq(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    /*
+     * Secure-host TISCI GET_FREQ (0x010e) request as the R5 SPL sends it
+     * (mirrors u-boot's ti_sci_msg_req_get_clock_freq: hdr; u32 dev_id;
+     * u8 clk_id):
+     * word0 = secure header {u16 checksum=0; u16 reserved=0}
+     * word1 = {u16 type=0x010e; u8 host=35; u8 seq=0xa}
+     * word2 = flags = TISCI_MSG_FLAG_AOP (0x2)
+     * word3 = dev_id = 57 (MMCSD0)
+     * word4 = clk_id = 1
+     */
+    qtest_writel(qts, SP_TARGET(1) + 0x04, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x08, 0x0a23010e);
+    qtest_writel(qts, SP_TARGET(1) + 0x0c, 0x00000002);
+    qtest_writel(qts, SP_TARGET(1) + 0x10, 57);
+    qtest_writel(qts, SP_TARGET(1) + 0x14, 1);
+    /* commit: write the last data word */
+    qtest_writel(qts, SP_TARGET(1) + 0x3c, 0x00000000);
+
+    /* response must land on RX thread 0 (message count > 0) */
+    for (int i = 0; i < 100; i++) {
+        if (qtest_readl(qts, SP_RT(0)) & 0xff) {
+            break;
+        }
+        g_usleep(10 * 1000);
+    }
+    g_assert_cmpuint(qtest_readl(qts, SP_RT(0)) & 0xff, >, 0);
+
+    /*
+     * secure hdr (word0) then TISCI hdr: type must echo 0x010e,
+     * flags word must have ACK set (bit 1)
+     */
+    g_assert_cmphex(qtest_readl(qts, SP_TARGET(0) + 0x08) & 0xffff,
+                    ==, 0x010e);
+    g_assert_cmphex(qtest_readl(qts, SP_TARGET(0) + 0x0c) & 0x2, ==, 0x2);
+    /* freq_hz (u64) directly after the 8-byte TISCI hdr: != 0 */
+    g_assert_cmpuint(qtest_readl(qts, SP_TARGET(0) + 0x10), !=, 0);
+    qtest_quit(qts);
+}
+
 static void test_dmtimer_counts(void)
 {
     QTestState *qts = qtest_init("-machine am64-virt");
@@ -213,6 +256,7 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/r5f-present", test_r5f_cpu_present);
     qtest_add_func("/am64-virt/devstat", test_devstat);
     qtest_add_func("/am64-virt/dmsc-r5-version", test_dmsc_r5_version);
+    qtest_add_func("/am64-virt/dmsc-r5-get-freq", test_dmsc_r5_get_freq);
     qtest_add_func("/am64-virt/dmtimer", test_dmtimer_counts);
     qtest_add_func("/am64-virt/dmtimer-prescaler", test_dmtimer_prescaler);
     qtest_add_func("/am64-virt/dmtimer-reconfigure", test_dmtimer_reconfigure);

@@ -429,6 +429,8 @@ dmsc_handle_get_device(const char *type, const char *host_name, const char *devi
 dmsc_handle_get_clock(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
 dmsc_handle_get_clock_parents(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32) "%s received from host %s, device %s, clk %u, clk32 %u"
 dmsc_handle_query_freq(const char *type, const char *host_name, const char *device_name, uint8_t clk, uint32_t clk32, uint64_t target_freq) "%s received from host %s, device %s, clk %u, clk32 %u, target_frequency %"PRIu64
+dmsc_handle_get_freq(const char *type, const char *host_name, const char *device_name, uint8_t clk) "%s received from host %s, device %s, clk %u"
+dmsc_handle_proc_set_config(const char *type, const char *host_name) "%s received from host %s"
 dmsc_handle_set_device_state(const char *type, const char *host_name, const char *device_name, const char *state) "%s received from host %s, device %s, state %s"
 dmsc_handle_set_device_resets(const char *type, const char *host_name, const char *device_name, uint32_t resets) "%s received from host %s, device %s, resets 0x%08x"
 dmsc_handle_get_status(const char *type, const char *host_name, const char *proc_name, uint8_t proc_id) "%s received from host %s, proc %s (%u)"

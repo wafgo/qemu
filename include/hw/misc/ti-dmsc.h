@@ -424,6 +424,20 @@ struct TisciMsgQueryFreqResp {
     uint64_t            freq_hz;
 } QEMU_PACKED;
 
+/*
+ * TISCI_MSG_GET_FREQ (0x010e) request, mirrors u-boot's
+ * struct ti_sci_msg_req_get_clock_freq: unlike QUERY_FREQ/SET_FREQ there is
+ * no min/target/max frequency triplet, just the device/clock pair whose
+ * current rate is being asked for. The response reuses
+ * struct TisciMsgQueryFreqResp (hdr + freq_hz), since the wire format is
+ * identical.
+ */
+struct TisciMsgGetFreqReq {
+    TISciMsgHdr         hdr;
+    uint32_t            device;
+    uint8_t             clk;
+} QEMU_PACKED;
+
 struct TisciMsgSetClockReq {
     TISciMsgHdr         hdr;
     uint32_t            device;

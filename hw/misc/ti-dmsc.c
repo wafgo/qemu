@@ -872,6 +872,38 @@ static void ti_dmsc_handle_query_freq(TIDmscClient *client, TISciMsgHdr *hdr,
 
 }
 
+static void ti_dmsc_handle_get_freq(TIDmscClient *client, TISciMsgHdr *hdr,
+                                    uint16_t thread_id,
+                                    const uint32_t *words,
+                                    size_t nwords)
+{
+    struct TisciMsgGetFreqReq *req = (struct TisciMsgGetFreqReq *)words;
+    struct TisciMsgQueryFreqResp resp = { 0 };
+
+    trace_dmsc_handle_get_freq(ti_dmsc_message_name_from_id(hdr->type),
+                               ti_dmsc_host_name_from_id(hdr->host),
+                               ti_dmsc_device_name_from_id(req->device),
+                               req->clk);
+
+    resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
+    /*
+     * Generic "unit clock" rate: the SPL only sanity-checks that GET_FREQ
+     * comes back non-zero (u-boot's clk_get_rate(clk_xin) et al). DDR
+     * frequencies come from the devicetree, not from this query, and
+     * sdhci divides down from whatever rate it is handed -- so a fixed
+     * sane value is sufficient for bring-up.
+     */
+    resp.freq_hz = 200000000ULL;
+
+    if (!ti_dmsc_client_respond(client,
+                               (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push GET_FREQ response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+
+}
+
 static void ti_dmsc_handle_get_clock_parents(TIDmscClient *client,
                                              TISciMsgHdr *hdr,
                                              uint16_t thread_id,
@@ -1156,6 +1188,29 @@ static void ti_dmsc_handle_board_config(TIDmscClient *client,
     }
 }
 
+/*
+ * TISCI_MSG_SET_CONFIG (0xc100): bare-header ACK, same shape as
+ * ti_dmsc_handle_board_config() -- the rproc-load path (u-boot's
+ * sciclient_procboot / k3_r5_load) only cares that this is ACKed, it does
+ * not inspect any response payload.
+ */
+static void ti_dmsc_handle_proc_set_config(TIDmscClient *client,
+                                           TISciMsgHdr *hdr,
+                                           uint16_t thread_id,
+                                           const uint32_t *words, size_t nwords)
+{
+    TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);
+
+    trace_dmsc_handle_proc_set_config(ti_dmsc_message_name_from_id(hdr->type),
+                                      ti_dmsc_host_name_from_id(hdr->host));
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push SET_CONFIG response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
 static void ti_dmsc_realize(DeviceState *dev, Error **errp)
 {
     ERRP_GUARD();
@@ -1226,7 +1281,9 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     s->msg_handler[TISCI_MSG_SET_CLOCK] = ti_dmsc_handle_set_clock;
     s->msg_handler[TISCI_MSG_GET_NUM_CLOCK_PARENTS] = ti_dmsc_handle_get_clock_parents;
     s->msg_handler[TISCI_MSG_QUERY_FREQ] = ti_dmsc_handle_query_freq;
+    s->msg_handler[TISCI_MSG_GET_FREQ] = ti_dmsc_handle_get_freq;
     s->msg_handler[TISCI_MSG_SET_FREQ] = ti_dmsc_handle_set_freq;
+    s->msg_handler[TISCI_MSG_SET_CONFIG] = ti_dmsc_handle_proc_set_config;
     s->msg_handler[TISCI_MSG_BOARD_CONFIG] = ti_dmsc_handle_board_config;
     s->msg_handler[TISCI_MSG_BOARD_CONFIG_RM] = ti_dmsc_handle_board_config;
     s->msg_handler[TISCI_MSG_BOARD_CONFIG_SECURITY] =
