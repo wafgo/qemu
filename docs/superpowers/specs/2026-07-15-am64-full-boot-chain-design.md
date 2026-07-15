@@ -70,7 +70,7 @@ Each phase has an independently testable milestone and its own
 implementation plan. Phases 1 and 2 are independent of each other;
 phase 3 needs both; phase 4 needs 3.
 
-### Phase 1 — GICv3 migration (QEMU)
+### Phase 1 — GICv3 migration (QEMU) [IMPLEMENTED 2026-07-15]
 
 Replace the SoC's `arm_gic` (v2) with `arm-gicv3`: distributor +
 redistributors at the real AM64x addresses (GICD `0x01800000`, GICR
@@ -85,6 +85,17 @@ machine still works with the regenerated DTB.
 
 **Risks:** wide blast radius in `ti-am64x.c` (every IRQ wiring site);
 the fork's existing dtb consumers. Mitigated by the existing test net.
+
+**As built (2026-07-15):**
+GICv3 (TYPE_ARM_GICV3) instantiated at GICD `0x01800000`, GICR `0x01840000`
+(2 × `0x20000` redistributor frame). Security extensions enabled, maintenance
+IRQ wired. ITS (`0x01820000`) not modelled, deferred until PCIe-MSI integration.
+`pc-bios/dtb/am64-virt.dtb` regenerated with `arm,gic-v3` node. New qtests
+validate PIDR2 ArchRev on GICD/GICR. Functional test_linux_gicv3 added with
+upstream kernel Asset + regenerated DTB; kernel confirms GICv3 redistributor at
+`0x0000000001840000`. Adjacent fix: cmblu-corenode machine smp-headroom bug
+(pre-existing tcg_register_thread flake from R5F addition). Commits:
+753ef79682, ac6d778648, 9bd1456838, e9186fea8b.
 
 ### Phase 2 — DDRSS stub + SDHCI (QEMU)
 
@@ -183,8 +194,9 @@ errors fail fast before the guest starts.
 
 ## Open items pinned during planning (per phase)
 
-- Ph. 1: exact GIC-500 address map on AM64x (GICD/GICR/ITS?) from TRM;
-  how the existing `am64-virt.dtb` is generated/consumed.
+- Ph. 1: ✓ RESOLVED — GIC-500 address map (GICD `0x01800000`, GICR
+  `0x01840000` × 2, ITS deferred) pinned from k3-am64-main.dtsi; dtb
+  regeneration mechanism validated.
 - Ph. 2: root cause of `DRAM init failed: -22`; DDRSS base + polled
   bits from the k3-ddrss driver; SDHCI reg layout (ctl vs PHY region)
   from k3-am64-main.dtsi + am654 driver.
