@@ -446,6 +446,8 @@ config TI_AM64X
     select TI_K3_CTRLMMR
     select TI_K3_DDRSS
     select TI_K3_DMTIMER
+    select TI_K3_SDHCI_PHY
+    select SDHCI
     select AM64_UART
 
 config XLNX_ZYNQMP_ARM

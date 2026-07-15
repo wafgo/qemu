@@ -248,6 +248,24 @@ static void test_ddrss_stub(void)
     qtest_quit(qts);
 }
 
+#define SDHCI_SD_BASE   0x0fa00000ULL
+#define SDHCI_EMMC_BASE 0x0fa10000ULL
+
+static void test_sdhci_present(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    /* SDHC capabilities register (0x40) reflects our capareg */
+    g_assert_cmphex(qtest_readl(qts, SDHCI_SD_BASE + 0x40), ==, 0x057c34b4);
+    g_assert_cmphex(qtest_readl(qts, SDHCI_EMMC_BASE + 0x40), ==, 0x057c34b4);
+    /* host controller version (0xFE, 16-bit): spec 3.00 = 0x0002 */
+    g_assert_cmphex(qtest_readw(qts, SDHCI_SD_BASE + 0xFE) & 0xff, ==, 2);
+    /* PHY window: PHY_STAT1 reads CALDONE|DLLRDY */
+    g_assert_cmphex(qtest_readl(qts, 0x0fa08000ULL + 0x130) & 0x3, ==, 0x3);
+    g_assert_cmphex(qtest_readl(qts, 0x0fa18000ULL + 0x130) & 0x3, ==, 0x3);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -262,5 +280,6 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/dmtimer-reconfigure", test_dmtimer_reconfigure);
     qtest_add_func("/am64-virt/gicv3", test_gicv3_present);
     qtest_add_func("/am64-virt/ddrss-stub", test_ddrss_stub);
+    qtest_add_func("/am64-virt/sdhci", test_sdhci_present);
     return g_test_run();
 }

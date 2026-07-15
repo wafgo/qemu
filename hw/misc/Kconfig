@@ -141,6 +141,9 @@ config TI_K3_CTRLMMR
 config TI_K3_DDRSS
     bool
 
+config TI_K3_SDHCI_PHY
+    bool
+
 config TI_SEC_PROXY
     bool
 

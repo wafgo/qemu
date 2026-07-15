@@ -82,6 +82,13 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "main-timer0", &s->main_timer0,
                           TYPE_TI_K3_DMTIMER);
 
+  for (int i = 0; i < TI_AM64X_SDHCI_NUM; i++) {
+      object_initialize_child(obj, "sdhci[*]", &s->sdhci[i],
+                              TYPE_SYSBUS_SDHCI);
+      object_initialize_child(obj, "sdhci-phy[*]", &s->sdhci_phy[i],
+                              TYPE_TI_K3_SDHCI_PHY);
+  }
+
   for (int i = 0; i < TI_AM64X_A53_NUM; i++) {
       object_initialize_child(OBJECT(&s->a53_cluster), "a53[*]", &s->a53[i],
                               ARM_CPU_TYPE_NAME("cortex-a53"));
@@ -228,10 +235,14 @@ static void ti_am64_create_main_unimplemented(MemoryRegion *root)
     ADD_MAIN_UNIMP("USB0_MMR_MMRVBP_USBSS_CMN0",           0x00F900000ULL, 0x00000100ULL);
     ADD_MAIN_UNIMP("USB0_RAMS_INJ_CFG",                    0x00F901000ULL, 0x00000400ULL);
     ADD_MAIN_UNIMP("USB0_PHY2",                            0x00F908000ULL, 0x00000400ULL);
-    ADD_MAIN_UNIMP("MMCSD1_CTL_CFG",                       0x00FA00000ULL, 0x00001000ULL); /* 4 KB */
-    ADD_MAIN_UNIMP("MMCSD1_SS_CFG",                        0x00FA08000ULL, 0x00000400ULL); /* 1 KB */
-    ADD_MAIN_UNIMP("MMCSD0_CTL_CFG",                       0x00FA10000ULL, 0x00001000ULL); /* 4 KB */
-    ADD_MAIN_UNIMP("MMCSD0_SS_CFG",                        0x00FA18000ULL, 0x00000400ULL); /* 1 KB */
+    /*
+     * MMCSD0 (eMMC, sdhci[0]) and MMCSD1 (SD, sdhci[1]) control windows
+     * are modeled by real TYPE_SYSBUS_SDHCI devices (first 0x100 bytes)
+     * plus a ti-k3-sdhci-phy stub at the SS_CFG window; only the vendor
+     * register tail beyond the SDHC standard block is left unimplemented.
+     */
+    ADD_MAIN_UNIMP("MMCSD1_CTL_VENDOR",       0x00FA00100ULL, 0x00000F00ULL);
+    ADD_MAIN_UNIMP("MMCSD0_CTL_VENDOR",       0x00FA10100ULL, 0x00000F00ULL);
     ADD_MAIN_UNIMP("FSS0_CFG",                             0x00FC00000ULL, 0x00000100ULL);
     ADD_MAIN_UNIMP("FSS0_FSAS_CFG",                        0x00FC10000ULL, 0x00000100ULL);
     ADD_MAIN_UNIMP("FSS0_OTFA_CFG",                        0x00FC20000ULL, 0x00001000ULL);
@@ -1105,6 +1116,46 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   memory_region_add_subregion(sysmem, 0x02400000,
       sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->main_timer0), 0));
+
+  /*
+   * MMCSD0 (eMMC) / MMCSD1 (SD) SDHCI controllers + their am654-style
+   * companion PHY config windows. IRQ numbers are the raw GIC_SPI values
+   * from k3-am64-main.dtsi (sdhci0 -> GIC_SPI 133, sdhci1 -> GIC_SPI 134).
+   */
+  {
+      static const struct {
+          hwaddr ctl;
+          hwaddr phy;
+          int irq;
+      } sdhci_cfg[] = {
+          { 0x0fa10000, 0x0fa18000, 133 }, /* MMCSD0 / sdhci0, eMMC */
+          { 0x0fa00000, 0x0fa08000, 134 }, /* MMCSD1 / sdhci1, SD   */
+      };
+
+      for (int i = 0; i < TI_AM64X_SDHCI_NUM; i++) {
+          SysBusDevice *sbd = SYS_BUS_DEVICE(&s->sdhci[i]);
+
+          object_property_set_uint(OBJECT(&s->sdhci[i]), "sd-spec-version",
+                                   3, &error_abort);
+          object_property_set_uint(OBJECT(&s->sdhci[i]), "capareg",
+                                   0x057c34b4, &error_abort);
+          if (!sysbus_realize(sbd, errp)) {
+              return;
+          }
+          memory_region_add_subregion(sysmem, sdhci_cfg[i].ctl,
+                                      sysbus_mmio_get_region(sbd, 0));
+          sysbus_connect_irq(sbd, 0,
+                             qdev_get_gpio_in(DEVICE(&s->gic),
+                                              sdhci_cfg[i].irq));
+
+          sbd = SYS_BUS_DEVICE(&s->sdhci_phy[i]);
+          if (!sysbus_realize(sbd, errp)) {
+              return;
+          }
+          memory_region_add_subregion(sysmem, sdhci_cfg[i].phy,
+                                      sysbus_mmio_get_region(sbd, 0));
+      }
+  }
 
   ti_am64_create_mcu_unimplemented(sysmem);
   ti_am64_create_main_unimplemented(sysmem);

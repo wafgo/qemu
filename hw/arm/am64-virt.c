@@ -20,8 +20,10 @@
 #include "hw/arm/ti-am64x.h"
 #include "hw/arm/k3-bootrom.h"
 #include "hw/qdev-clock.h"
+#include "hw/sd/sd.h"
 #include "system/address-spaces.h"
 #include "system/system.h"
+#include "system/blockdev.h"
 #include "qemu/error-report.h"
 #include "chardev/char.h"
 #include "qemu/units.h"
@@ -187,6 +189,7 @@ static void am64_virt_init(MachineState *machine)
     Clock *sysclk = clock_new(OBJECT(machine), "SYSCLK");
     Chardev *mcu_chardev;
     uint8_t a53_cpus = MIN(machine->smp.cpus, TI_AM64X_A53_NUM);
+    DriveInfo *sd_di = drive_get(IF_SD, 0, 0);
 
     /*
      * The SoC realizes an M4 (and soon an R5F) vCPU beyond the A53s, and
@@ -245,11 +248,31 @@ static void am64_virt_init(MachineState *machine)
         qdev_prop_set_bit(soc, "r5-start-powered-off", false);
         qdev_prop_set_chr(DEVICE(&TI_AM64X(soc)->main_uart0),
                           "chardev", serial_hd(0));
+        if (sd_di) {
+            /*
+             * DEVSTAT primary bootmode = MMC (0x8), port = SD, so the
+             * R5 SPL's boot-device probe picks MMC2 (SD, sdhci[1]) in
+             * FS-mode instead of the MMC1 (eMMC) raw-mode default.
+             */
+            qdev_prop_set_uint32(DEVICE(&TI_AM64X(soc)->ctrlmmr), "devstat",
+                                 0x240);
+        }
     }
 
     sysbus_realize_and_unref(SYS_BUS_DEVICE(soc), &error_fatal);
     ams->soc = TI_AM64X(soc);
     gic = DEVICE(&ams->soc->gic);
+
+    if (sd_di) {
+        DeviceState *card = qdev_new(TYPE_SD_CARD);
+
+        qdev_prop_set_drive_err(card, "drive", blk_by_legacy_dinfo(sd_di),
+                                &error_fatal);
+        qdev_realize_and_unref(card,
+                               qdev_get_child_bus(DEVICE(&ams->soc->sdhci[1]),
+                                                  "sd-bus"),
+                               &error_fatal);
+    }
 
     memory_region_add_subregion(get_system_memory(), AM64_VIRT_DRAM_BASE,
                                 machine->ram);

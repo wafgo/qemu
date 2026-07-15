@@ -27,6 +27,8 @@
 #include "hw/misc/ti-mailbox.h"
 #include "hw/misc/ti-k3-ctrlmmr.h"
 #include "hw/misc/ti-k3-ddrss.h"
+#include "hw/misc/ti-k3-sdhci-phy.h"
+#include "hw/sd/sdhci.h"
 #include "hw/char/ti-am64-uart.h"
 #include "hw/timer/ti-k3-dmtimer.h"
 
@@ -38,6 +40,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(TIAM64xState, TI_AM64X)
 #define TI_AM64X_A53_NUM 2
 #define TI_AM64X_GIC_NUM_SPI 256
 #define TI_AM64X_R5_NUM 1
+#define TI_AM64X_SDHCI_NUM 2
     
 struct TIAM64xState {
     SysBusDevice parent_obj;
@@ -67,6 +70,8 @@ struct TIAM64xState {
     TIK3CtrlMmrState mcu_ctrlmmr;
     TIK3DdrssState ddrss;
     TIK3DmTimerState main_timer0;
+    SDHCIState sdhci[TI_AM64X_SDHCI_NUM];
+    TIK3SdhciPhyState sdhci_phy[TI_AM64X_SDHCI_NUM];
     uint64_t main_ram_base;
     uint64_t main_ram_size;
     uint8_t a53_cpus;
