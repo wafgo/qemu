@@ -9,8 +9,10 @@
 
 import os
 import struct
+from subprocess import check_call, DEVNULL
 
-from qemu_test import Asset, QemuSystemTest, wait_for_console_pattern
+from qemu_test import Asset, QemuSystemTest, get_qemu_img, \
+    wait_for_console_pattern
 from unittest import skipUnless
 
 # Root of the QEMU source tree, used to reach pc-bios/dtb/am64-virt.dtb:
@@ -106,6 +108,41 @@ class Am64BootRom(QemuSystemTest):
         # works end-to-end (boot then proceeds into unmodelled DDR init).
         wait_for_console_pattern(self, 'U-Boot SPL')
         wait_for_console_pattern(self, 'SYSFW ABI:')
+
+    @skipUnless(os.getenv('QEMU_TEST_TIBOOT3'),
+                'set QEMU_TEST_TIBOOT3=<path to tiboot3.bin>')
+    @skipUnless(os.getenv('QEMU_TEST_WIC'),
+                'set QEMU_TEST_WIC=<path to fluxos.wic>')
+    def test_fluxos_spl_loads_tispl(self):
+        wic = os.getenv('QEMU_TEST_WIC')
+
+        # QEMU's sd-card device rejects raw images whose size is not a
+        # 512 KiB multiple (see hw/sd/sd.c); a real FluxOS WIC generally
+        # is not aligned to that. Rather than requiring the operator's
+        # WIC to be resized in place (which would also expose it to
+        # guest writes during the test), attach it as the read-only
+        # backing file of a throwaway qcow2 overlay whose virtual size
+        # is rounded UP to the next 512 KiB boundary. All guest writes
+        # land in the overlay, which is discarded with the rest of
+        # self.workdir; the padding is a no-op when the WIC is already
+        # aligned.
+        size = os.path.getsize(wic)
+        padded_size = (size + 0x7ffff) & ~0x7ffff
+        overlay = self.scratch_file('wic-overlay.qcow2')
+        qemu_img = get_qemu_img(self)
+        check_call([qemu_img, 'create', '-f', 'qcow2', '-b', wic,
+                    '-F', 'raw', overlay, str(padded_size)],
+                   stdout=DEVNULL, stderr=DEVNULL)
+
+        self.set_machine('am64-virt')
+        self.vm.set_console()
+        self.vm.add_args('-bios', os.getenv('QEMU_TEST_TIBOOT3'),
+                         '-drive',
+                         'if=sd,format=qcow2,file=' + overlay)
+        self.vm.launch()
+        wait_for_console_pattern(self, 'U-Boot SPL')
+        wait_for_console_pattern(self, 'Trying to boot from MMC2')
+        wait_for_console_pattern(self, 'Starting ATF on ARM64 core')
 
     # Standalone arm64 kernel (Ubuntu bionic-updates netboot installer),
     # same Asset used by test_xlnx_versal.py.  It ships PL011 + GICv3
