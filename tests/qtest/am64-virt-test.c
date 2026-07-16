@@ -402,6 +402,28 @@ static void test_sdhci_present(void)
     qtest_quit(qts);
 }
 
+#define TRNG_BASE 0x40910000ULL
+
+static void test_trng_stub(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    /* readiness bit permanently set */
+    g_assert_cmphex(qtest_readl(qts, TRNG_BASE + 0x10) & 0x1, ==, 0x1);
+    /* output words nonzero and changing between reads */
+    uint32_t a = qtest_readl(qts, TRNG_BASE + 0x00);
+    uint32_t b = qtest_readl(qts, TRNG_BASE + 0x00);
+
+    g_assert_cmpuint(a, !=, 0);
+    g_assert_true(a != b || qtest_readl(qts, TRNG_BASE + 0x04) != a);
+    /* INTACK write is accepted (no crash / guest error) */
+    qtest_writel(qts, TRNG_BASE + 0x10, 0x1);
+    /* CONTROL is RAM-backed: read back what was written */
+    qtest_writel(qts, TRNG_BASE + 0x14, 0x400);
+    g_assert_cmphex(qtest_readl(qts, TRNG_BASE + 0x14), ==, 0x400);
+    qtest_quit(qts);
+}
+
 /*
  * A53_0's TISCI transport (ATF/BL31's SP_HIGH_PRIORITY(9)/SP_RESPONSE(8)
  * thread pair, TF-A lts-v2.10.4 plat/ti/k3/common/drivers/sec_proxy/
@@ -450,6 +472,49 @@ static void test_dmsc_a53_secure_version(void)
     qtest_quit(qts);
 }
 
+/*
+ * Brief Step 4: send TISCI_MSG_FWL_SET (0x9000) with AOP via the R5's
+ * secure thread (1) and confirm the ACK bit is set in the response --
+ * without the bare-ACK handler this falls through to the unknown-message
+ * NAK path in ti_dmsc_handle_one().
+ */
+static void test_dmsc_fwl_set_ack(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    if (qtest_readl(qts, SP_RT(0)) & 0xff) {
+        qtest_readl(qts, SP_TARGET(0) + 0x3c);
+    }
+
+    /*
+     * word0 = secure header (0)
+     * word1 = {type=0x9000; host=35 (MAIN_0_R5_0); seq=0x0b}
+     * word2 = flags = AOP
+     * word3 = fwl_id=0x23, region=3
+     * word4 = n_permission_regs = 1
+     * remaining words (control/permissions/start/end): left 0
+     */
+    qtest_writel(qts, SP_TARGET(1) + 0x04, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x08, 0x0b239000);
+    qtest_writel(qts, SP_TARGET(1) + 0x0c, 0x00000002);
+    qtest_writel(qts, SP_TARGET(1) + 0x10, 0x00030023);
+    qtest_writel(qts, SP_TARGET(1) + 0x14, 0x00000001);
+    qtest_writel(qts, SP_TARGET(1) + 0x3c, 0x00000000);
+
+    for (int i = 0; i < 100; i++) {
+        if (qtest_readl(qts, SP_RT(0)) & 0xff) {
+            break;
+        }
+        g_usleep(10 * 1000);
+    }
+    g_assert_cmphex(qtest_readl(qts, SP_RT(0)) & 0xff, >, 0);
+
+    g_assert_cmphex(qtest_readl(qts, SP_TARGET(0) + 0x08) & 0xffff,
+                    ==, 0x9000);
+    g_assert_cmphex(qtest_readl(qts, SP_TARGET(0) + 0x0c) & 0x2, ==, 0x2);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -469,7 +534,9 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/gicv3", test_gicv3_present);
     qtest_add_func("/am64-virt/ddrss-stub", test_ddrss_stub);
     qtest_add_func("/am64-virt/sdhci", test_sdhci_present);
+    qtest_add_func("/am64-virt/trng", test_trng_stub);
     qtest_add_func("/am64-virt/dmsc-a53-secure-version",
                    test_dmsc_a53_secure_version);
+    qtest_add_func("/am64-virt/dmsc-fwl-set", test_dmsc_fwl_set_ack);
     return g_test_run();
 }

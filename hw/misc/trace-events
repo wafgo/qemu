@@ -447,6 +447,12 @@ dmsc_handover_proc(const char* proc_name, int proc_id, const char *new_host, con
 dmsc_a53_bootvector(uint8_t proc_id, uint64_t bootvector) "Captured boot vector for A53 proc %u: 0x%" PRIx64
 dmsc_a53_start(int core, uint64_t entry) "Cold-starting A53 core %d at entry 0x%" PRIx64 " (EL3/AArch64)"
 dmsc_a53_stop(int core) "Powering off A53 core %d"
+dmsc_handle_fwl_set(const char *type, const char *host_name, uint16_t fwl_id, uint16_t region) "%s received from host %s, fwl_id %u, region %u"
+dmsc_handle_fwl_get(const char *type, const char *host_name, uint16_t fwl_id, uint16_t region) "%s received from host %s, fwl_id %u, region %u"
+dmsc_handle_fwl_change_owner(const char *type, const char *host_name, uint16_t fwl_id, uint16_t region, uint8_t owner_index) "%s received from host %s, fwl_id %u, region %u, owner_index %u"
+dmsc_handle_sa2ul_get_dkek(const char *type, const char *host_name, uint8_t sa2ul_instance) "%s received from host %s, sa2ul_instance %u (returning zeroed DKEK)"
+dmsc_handle_read_swrev(const char *type, const char *host_name) "%s received from host %s (returning swrev=0)"
+dmsc_handle_read_keycnt_keyrev(const char *type, const char *host_name) "%s received from host %s (returning keycnt=keyrev=0)"
 
 # ti-rat.c
 rat_enable_region(int idx, uint64_t size, uint64_t source, uint64_t dest) "Enabling RAT Region %u: size 0x%"PRIx64" map 0x%"PRIx64" -> 0x%"PRIx64
@@ -460,3 +466,7 @@ ti_sec_proxy_complete_read(const char *name, int num) "thread: %s completed read
 ti_sec_proxy_complete_write(const char *name, int num) "thread: %s completed write message %i. Resetting number of messages"
 ti_sec_proxy_announce_callback(const char *name) "invoce callback for thread: %s"
 ti_sec_proxy_read_rt(const char *name, int reg, uint64_t addr) "thread: %s, reg: %x. read from RT addr 0x%" PRIx64
+
+# ti-k3-trng.c
+ti_k3_trng_read(uint64_t addr, uint32_t val) "offset 0x%" PRIx64 " -> 0x%08x"
+ti_k3_trng_write(uint64_t addr, uint64_t val) "offset 0x%" PRIx64 " <- 0x%" PRIx64

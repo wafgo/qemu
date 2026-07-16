@@ -144,6 +144,9 @@ config TI_K3_DDRSS
 config TI_K3_SDHCI_PHY
     bool
 
+config TI_K3_TRNG
+    bool
+
 config TI_SEC_PROXY
     bool
 

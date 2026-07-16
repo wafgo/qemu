@@ -300,6 +300,26 @@
 #define TISCI_MSG_GET_STATUS		        (0xc400U)
 #define TISCI_MSG_WAIT_PROC_BOOT_STATUS          (0xc401U)
 
+/*
+ * Security messages (0x90xx). Numeric IDs and request/response layouts
+ * cross-checked against two independent sources:
+ *  - u-boot's drivers/firmware/ti_sci.h (TISCI_MSG_FWL_SET/GET/CHANGE_OWNER)
+ *  - Zephyr's drivers/firmware/tisci/tisci.h (full 0x90xx range, incl.
+ *    TISCI_MSG_SA2UL_GET_DKEK, TISCI_MSG_READ_SWREV,
+ *    TISCI_MSG_READ_KEYCNT_KEYREV), which also matches the struct layouts
+ *    in OP-TEE 4.1.0's core/arch/arm/plat-k3/drivers/ti_sci_protocol.h.
+ * These are the messages OP-TEE's sa2ul_init() (driver_init) and
+ * tee_otp_get_hw_unique_key()/secure_boot_information() send during boot;
+ * see the handler comments below for exactly which OP-TEE call site NAKs
+ * fatally vs. gracefully on each one.
+ */
+#define TISCI_MSG_FWL_SET                       (0x9000U)
+#define TISCI_MSG_FWL_GET                       (0x9001U)
+#define TISCI_MSG_FWL_CHANGE_OWNER              (0x9002U)
+#define TISCI_MSG_SA2UL_GET_DKEK                (0x9029U)
+#define TISCI_MSG_READ_SWREV                    (0x9033U)
+#define TISCI_MSG_READ_KEYCNT_KEYREV             (0x9034U)
+
 #define TISCI_MSG_MAX_ID                        (0xc500U)
 
 /** AM64_MAIN_SEC_MMR_MAIN_0: (Cluster 9 Processor 0) */
@@ -526,6 +546,95 @@ struct TisciMsgGetDeviceResp {
     uint32_t   resets;
     uint8_t    programmed_state;
     uint8_t    current_state;
+} QEMU_PACKED;
+
+/*
+ * Security messages (0x90xx) request/response structs. Layouts
+ * cross-checked against two independent sources:
+ *  - u-boot's drivers/firmware/ti_sci.h (TISCI_MSG_FWL_SET/GET/CHANGE_OWNER)
+ *  - Zephyr's drivers/firmware/tisci/tisci.h (full 0x90xx range, incl.
+ *    TISCI_MSG_SA2UL_GET_DKEK, TISCI_MSG_READ_SWREV,
+ *    TISCI_MSG_READ_KEYCNT_KEYREV), which also matches the struct layouts
+ *    in OP-TEE 4.1.0's core/arch/arm/plat-k3/drivers/ti_sci_protocol.h.
+ * These are the messages OP-TEE's sa2ul_init() (driver_init) and
+ * tee_otp_get_hw_unique_key()/secure_boot_information() send during boot;
+ * see the handler comments in ti-dmsc.c for exactly which OP-TEE call site
+ * NAKs fatally vs. gracefully on each one.
+ */
+#define FWL_MAX_PRIVID_SLOTS 3U
+
+struct TisciMsgReqFwlSetFirewallRegion {
+    TISciMsgHdr hdr;
+    uint16_t fwl_id;
+    uint16_t region;
+    uint32_t n_permission_regs;
+    uint32_t control;
+    uint32_t permissions[FWL_MAX_PRIVID_SLOTS];
+    uint64_t start_address;
+    uint64_t end_address;
+} QEMU_PACKED;
+
+/* Response to TISCI_MSG_FWL_SET is a bare generic ACK/NACK (TISciMsgHdr). */
+
+struct TisciMsgReqFwlGetFirewallRegion {
+    TISciMsgHdr hdr;
+    uint16_t fwl_id;
+    uint16_t region;
+    uint32_t n_permission_regs;
+} QEMU_PACKED;
+
+struct TisciMsgRespFwlGetFirewallRegion {
+    TISciMsgHdr hdr;
+    uint16_t fwl_id;
+    uint16_t region;
+    uint32_t n_permission_regs;
+    uint32_t control;
+    uint32_t permissions[FWL_MAX_PRIVID_SLOTS];
+    uint64_t start_address;
+    uint64_t end_address;
+} QEMU_PACKED;
+
+struct TisciMsgReqFwlChangeOwnerInfo {
+    TISciMsgHdr hdr;
+    uint16_t fwl_id;
+    uint16_t region;
+    uint8_t owner_index;
+} QEMU_PACKED;
+
+struct TisciMsgRespFwlChangeOwnerInfo {
+    TISciMsgHdr hdr;
+    uint16_t fwl_id;
+    uint16_t region;
+    uint8_t owner_index;
+    uint8_t owner_privid;
+    uint16_t owner_permission_bits;
+} QEMU_PACKED;
+
+#define SA2UL_DKEK_KEY_LEN 32
+#define KDF_LABEL_AND_CONTEXT_LEN_MAX 41
+
+struct TisciMsgReqSa2ulGetDkek {
+    TISciMsgHdr hdr;
+    uint8_t sa2ul_instance;
+    uint8_t kdf_label_len;
+    uint8_t kdf_context_len;
+    uint8_t kdf_label_and_context[KDF_LABEL_AND_CONTEXT_LEN_MAX];
+} QEMU_PACKED;
+
+struct TisciMsgRespSa2ulGetDkek {
+    TISciMsgHdr hdr;
+    uint8_t dkek[SA2UL_DKEK_KEY_LEN];
+} QEMU_PACKED;
+
+struct TisciMsgRespReadSwrev {
+    TISciMsgHdr hdr;
+    uint32_t swrev;
+} QEMU_PACKED;
+
+struct TisciMsgRespReadKeycntKeyrev {
+    TISciMsgHdr hdr;
+    uint32_t keycnt;
+    uint32_t keyrev;
 } QEMU_PACKED;
 
 

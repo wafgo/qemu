@@ -513,6 +513,18 @@ static const char *ti_dmsc_message_name_from_id(uint16_t msg_id)
         return "GET_STATUS";
     case TISCI_MSG_WAIT_PROC_BOOT_STATUS:
         return "WAIT_PROC_BOOT_STATUS";
+    case TISCI_MSG_FWL_SET:
+        return "FWL_SET";
+    case TISCI_MSG_FWL_GET:
+        return "FWL_GET";
+    case TISCI_MSG_FWL_CHANGE_OWNER:
+        return "FWL_CHANGE_OWNER";
+    case TISCI_MSG_SA2UL_GET_DKEK:
+        return "SA2UL_GET_DKEK";
+    case TISCI_MSG_READ_SWREV:
+        return "READ_SWREV";
+    case TISCI_MSG_READ_KEYCNT_KEYREV:
+        return "READ_KEYCNT_KEYREV";
     default:
         return "UNKNOWN";
     }
@@ -1427,6 +1439,180 @@ static void ti_dmsc_handle_proc_set_config(TIDmscClient *client,
     }
 }
 
+/*
+ * TISCI_MSG_FWL_SET (0x9000): bare-header ACK. OP-TEE's ti_sci_set_fwl_region()
+ * (core/arch/arm/plat-k3/drivers/ti_sci.c) only checks the generic ACK/NACK
+ * flag; a NAK here makes sa2ul_init() (driver_init) bail out with
+ * "Could not set firewall region information" before it ever reaches
+ * sa2ul_rng_init(), so this must ACK to let TRNG/HUK bring-up proceed.
+ */
+static void ti_dmsc_handle_fwl_set(TIDmscClient *client, TISciMsgHdr *hdr,
+                                   uint16_t thread_id, const uint32_t *words,
+                                   size_t nwords)
+{
+    struct TisciMsgReqFwlSetFirewallRegion *req =
+        (struct TisciMsgReqFwlSetFirewallRegion *)words;
+    TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);
+
+    trace_dmsc_handle_fwl_set(ti_dmsc_message_name_from_id(hdr->type),
+                              ti_dmsc_host_name_from_id(hdr->host),
+                              req->fwl_id, req->region);
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push FWL_SET response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
+/*
+ * TISCI_MSG_FWL_GET (0x9001): OP-TEE's ti_sci_get_fwl_region() propagates a
+ * NAK straight up as "Could not get firewall region information" and aborts
+ * sa2ul_init(), so this must ACK too. The response fields are not load-
+ * bearing on the happy path -- ti_sci_get_fwl_region()'s only caller
+ * (sa2ul_init()) immediately overwrites control/permissions with its own
+ * values via a following FWL_SET -- so echoing the request's fwl_id/region
+ * and zeroing the rest is sufficient (brief: "zeroed payload of the right
+ * length is acceptable").
+ */
+static void ti_dmsc_handle_fwl_get(TIDmscClient *client, TISciMsgHdr *hdr,
+                                   uint16_t thread_id, const uint32_t *words,
+                                   size_t nwords)
+{
+    struct TisciMsgReqFwlGetFirewallRegion *req =
+        (struct TisciMsgReqFwlGetFirewallRegion *)words;
+    struct TisciMsgRespFwlGetFirewallRegion resp = { 0 };
+
+    resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
+    resp.fwl_id = req->fwl_id;
+    resp.region = req->region;
+
+    trace_dmsc_handle_fwl_get(ti_dmsc_message_name_from_id(hdr->type),
+                              ti_dmsc_host_name_from_id(hdr->host),
+                              req->fwl_id, req->region);
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push FWL_GET response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
+/*
+ * TISCI_MSG_FWL_CHANGE_OWNER (0x9002): the most safety-critical ACK of this
+ * group. OP-TEE's sa2ul_init() calls ti_sci_change_fwl_owner() twice: once
+ * for the SA2UL region (a NAK there is explicitly tolerated -- "not fatal,
+ * it just means we are on an HS device") and once for the TRNG region,
+ * where a NAK is fatal ("Could not change TRNG firewall owner", immediate
+ * return) and aborts before sa2ul_rng_init() ever runs. ACK unconditionally
+ * so both call sites succeed.
+ */
+static void ti_dmsc_handle_fwl_change_owner(TIDmscClient *client,
+                                            TISciMsgHdr *hdr,
+                                            uint16_t thread_id,
+                                            const uint32_t *words,
+                                            size_t nwords)
+{
+    struct TisciMsgReqFwlChangeOwnerInfo *req =
+        (struct TisciMsgReqFwlChangeOwnerInfo *)words;
+    struct TisciMsgRespFwlChangeOwnerInfo resp = { 0 };
+
+    resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
+    resp.fwl_id = req->fwl_id;
+    resp.region = req->region;
+    resp.owner_index = req->owner_index;
+
+    trace_dmsc_handle_fwl_change_owner(ti_dmsc_message_name_from_id(hdr->type),
+                                       ti_dmsc_host_name_from_id(hdr->host),
+                                       req->fwl_id, req->region,
+                                       req->owner_index);
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push FWL_CHANGE_OWNER response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
+/*
+ * TISCI_MSG_SA2UL_GET_DKEK (0x9029): OP-TEE's tee_otp_get_hw_unique_key()
+ * (core/arch/arm/plat-k3/main.c) treats a NAK as fatal for HUK derivation
+ * ("Could not get HUK", TEE_ERROR_SECURITY) -- this is the exact failure
+ * seen in the pre-fix boot trace. A zeroed DKEK is not a real security
+ * property, but it lets OP-TEE's boot proceed past the initcall instead of
+ * failing it; no key material this emulator produces should ever be
+ * treated as secret.
+ */
+static void ti_dmsc_handle_sa2ul_get_dkek(TIDmscClient *client,
+                                          TISciMsgHdr *hdr,
+                                          uint16_t thread_id,
+                                          const uint32_t *words,
+                                          size_t nwords)
+{
+    struct TisciMsgReqSa2ulGetDkek *req =
+        (struct TisciMsgReqSa2ulGetDkek *)words;
+    struct TisciMsgRespSa2ulGetDkek resp = { 0 };
+
+    resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
+
+    trace_dmsc_handle_sa2ul_get_dkek(ti_dmsc_message_name_from_id(hdr->type),
+                                     ti_dmsc_host_name_from_id(hdr->host),
+                                     req->sa2ul_instance);
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push SA2UL_GET_DKEK response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
+/*
+ * TISCI_MSG_READ_SWREV (0x9033) / TISCI_MSG_READ_KEYCNT_KEYREV (0x9034):
+ * both are queried from OP-TEE's secure_boot_information()
+ * (service_init_late), which only logs the values on success and does
+ * nothing on failure -- a NAK is harmless here, but ACKing keeps the boot
+ * log free of NAK-storm noise (brief rationale) and matches the sibling
+ * 0x90xx handlers above.
+ */
+static void ti_dmsc_handle_read_swrev(TIDmscClient *client, TISciMsgHdr *hdr,
+                                      uint16_t thread_id,
+                                      const uint32_t *words, size_t nwords)
+{
+    struct TisciMsgRespReadSwrev resp = { 0 };
+
+    resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
+
+    trace_dmsc_handle_read_swrev(ti_dmsc_message_name_from_id(hdr->type),
+                                 ti_dmsc_host_name_from_id(hdr->host));
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push READ_SWREV response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
+static void ti_dmsc_handle_read_keycnt_keyrev(TIDmscClient *client,
+                                              TISciMsgHdr *hdr,
+                                              uint16_t thread_id,
+                                              const uint32_t *words,
+                                              size_t nwords)
+{
+    struct TisciMsgRespReadKeycntKeyrev resp = { 0 };
+
+    resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
+
+    trace_dmsc_handle_read_keycnt_keyrev(
+        ti_dmsc_message_name_from_id(hdr->type),
+        ti_dmsc_host_name_from_id(hdr->host));
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push READ_KEYCNT_KEYREV response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
 static void ti_dmsc_realize(DeviceState *dev, Error **errp)
 {
     ERRP_GUARD();
@@ -1510,6 +1696,14 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     s->msg_handler[TISCI_MSG_BOARD_CONFIG_SECURITY] =
         ti_dmsc_handle_board_config;
     s->msg_handler[TISCI_MSG_BOARD_CONFIG_PM] = ti_dmsc_handle_board_config;
+    s->msg_handler[TISCI_MSG_FWL_SET] = ti_dmsc_handle_fwl_set;
+    s->msg_handler[TISCI_MSG_FWL_GET] = ti_dmsc_handle_fwl_get;
+    s->msg_handler[TISCI_MSG_FWL_CHANGE_OWNER] =
+        ti_dmsc_handle_fwl_change_owner;
+    s->msg_handler[TISCI_MSG_SA2UL_GET_DKEK] = ti_dmsc_handle_sa2ul_get_dkek;
+    s->msg_handler[TISCI_MSG_READ_SWREV] = ti_dmsc_handle_read_swrev;
+    s->msg_handler[TISCI_MSG_READ_KEYCNT_KEYREV] =
+        ti_dmsc_handle_read_keycnt_keyrev;
 
     for (uint32_t i = 0; i < s->num_clients; i++) {
         ti_sec_proxy_register_msg_cb(s->sec_proxy, s->clients[i].rx_thread_id,

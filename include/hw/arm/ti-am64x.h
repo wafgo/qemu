@@ -28,6 +28,7 @@
 #include "hw/misc/ti-k3-ctrlmmr.h"
 #include "hw/misc/ti-k3-ddrss.h"
 #include "hw/misc/ti-k3-sdhci-phy.h"
+#include "hw/misc/ti-k3-trng.h"
 #include "hw/sd/sdhci.h"
 #include "hw/char/ti-am64-uart.h"
 #include "hw/timer/ti-k3-dmtimer.h"
@@ -70,6 +71,7 @@ struct TIAM64xState {
     TIK3CtrlMmrState mcu_ctrlmmr;
     TIK3CtrlMmrState sec_ctrlmmr;
     TIK3DdrssState ddrss;
+    TIK3TrngState trng;
     TIK3DmTimerState main_timer0;
     SDHCIState sdhci[TI_AM64X_SDHCI_NUM];
     TIK3SdhciPhyState sdhci_phy[TI_AM64X_SDHCI_NUM];

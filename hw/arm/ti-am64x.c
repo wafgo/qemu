@@ -81,6 +81,7 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "sec-ctrlmmr", &s->sec_ctrlmmr,
                           TYPE_TI_K3_CTRLMMR);
   object_initialize_child(obj, "ddrss", &s->ddrss, TYPE_TI_K3_DDRSS);
+  object_initialize_child(obj, "trng", &s->trng, TYPE_TI_K3_TRNG);
   object_initialize_child(obj, "main-timer0", &s->main_timer0,
                           TYPE_TI_K3_DMTIMER);
 
@@ -446,7 +447,7 @@ static void ti_am64_create_main_unimplemented(MemoryRegion *root)
 /* SA2/DEBUGSS/ROM/STM/CTRL/FW/SEC MMR/GLB */
     ADD_MAIN_UNIMP("SA2_UL0",                              0x040900000ULL, 0x00001000ULL); /* 4 KB */
     ADD_MAIN_UNIMP("SA2_UL0_MMRA",                         0x040901000ULL, 0x00000200ULL); /* 512 B */
-    ADD_MAIN_UNIMP("SA2_UL0_EIP_76",                       0x040910000ULL, 0x00000080ULL); /* 128 B */
+    /* SA2_UL0_EIP_76 (0x040910000, 128 B) is now the real TIK3Trng device. */
     ADD_MAIN_UNIMP("SA2_UL0_EIP_29T2",                     0x040920000ULL, 0x00010000ULL); /* 64 KB */
     ADD_MAIN_UNIMP("DEBUGSS0_SYS",                         0x041000000ULL, 0x00001000ULL); /* 4 KB */
     ADD_MAIN_UNIMP("ROM0",                                 0x041800000ULL, 0x00040000ULL); /* 256 KB */
@@ -1159,6 +1160,17 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   memory_region_add_subregion(sysmem, 0x0f308000,
       sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->ddrss), 0));
+
+  /*
+   * SA2UL TRNG (EIP-76), needed by OP-TEE's sa2ul_rng_init()/
+   * hw_get_random_bytes(). Replaces the "SA2_UL0_EIP_76" unimp stub
+   * removed from the table below.
+   */
+  if (!sysbus_realize(SYS_BUS_DEVICE(&s->trng), errp)) {
+    return;
+  }
+  memory_region_add_subregion(sysmem, 0x40910000,
+      sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->trng), 0));
 
   /* DM Timer0 (main_timer0, 20 MHz free-running) */
   if (!sysbus_realize(SYS_BUS_DEVICE(&s->main_timer0), errp)) {
