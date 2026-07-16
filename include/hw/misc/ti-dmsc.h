@@ -298,6 +298,7 @@
 #define TISCI_MSG_SET_CONFIG		        (0xc100U)
 #define TISCI_MSG_SET_CTRL		        (0xc101U)
 #define TISCI_MSG_GET_STATUS		        (0xc400U)
+#define TISCI_MSG_WAIT_PROC_BOOT_STATUS          (0xc401U)
 
 #define TISCI_MSG_MAX_ID                        (0xc500U)
 
@@ -375,6 +376,17 @@ struct TisciMsgProcGetStatusResp {
     uint32_t config_flags_1;
     uint32_t control_flags_1;
     uint32_t status_flags_1;
+} QEMU_PACKED;
+
+/*
+ * TISCI_MSG_WAIT_PROC_BOOT_STATUS (0xc401) request. Mirrors the leading
+ * fields of u-boot's struct ti_sci_msg_req_wait_proc_boot_status; only
+ * processor_id is read by the no-op handler, so the trailing
+ * wait-iteration/status-mask fields are intentionally not modeled.
+ */
+struct TisciMsgReqWaitProcBootStatus {
+    TISciMsgHdr hdr;
+    uint8_t processor_id;
 } QEMU_PACKED;
 
 struct TisciMsgSetDeviceReq {
@@ -533,6 +545,17 @@ struct TIDmscClient {
     bool secure;
     uint32_t pending_words[TI_DMSC_MAX_WORDS];
     size_t pending_nwords;
+
+    /*
+     * TISCI no-response semantics (TI_SCI_FLAG_REQ_GENERIC_NORESPONSE):
+     * set from the currently-dispatched request's hdr.flags AOP bit in
+     * ti_dmsc_handle_one() before the handler (or the unknown-type NAK
+     * path) runs, and consulted by ti_dmsc_client_respond() to decide
+     * whether to actually push a reply. Safe without extra locking: only
+     * one message is ever dispatched at a time (ti_dmsc_bh()'s single
+     * while-loop), so there is no concurrent writer/reader.
+     */
+    bool cur_req_wants_resp;
 };
 
 struct TIDmscState {

@@ -435,6 +435,7 @@ dmsc_handle_proc_set_config(const char *type, const char *host_name) "%s receive
 dmsc_handle_set_device_state(const char *type, const char *host_name, const char *device_name, const char *state) "%s received from host %s, device %s, state %s"
 dmsc_handle_set_device_resets(const char *type, const char *host_name, const char *device_name, uint32_t resets) "%s received from host %s, device %s, resets 0x%08x"
 dmsc_handle_get_status(const char *type, const char *host_name, const char *proc_name, uint8_t proc_id) "%s received from host %s, proc %s (%u)"
+dmsc_handle_wait_proc_boot_status(const char *type, const char *host_name, const char *proc_name, uint8_t proc_id) "%s received from host %s, proc %s (%u)"
 dmsc_get_status_resp(const char *proc_name, uint8_t proc_id, uint32_t status_flags, int m4_running) "GET_STATUS response for %s (%u): status_flags=0x%08x, m4_running=%d"
 dmsc_unsupported_message(const char *msg, int type, const char *host, int thread_id) "No handler for message type=%s (%i) from host %s ... (thread id: %i) dropping"
 dmsc_new_message_received(int type, const char *msg, const char *host, int thread_id) "Handling message type=0x%04x (%s) from host=%s, thread=%u"

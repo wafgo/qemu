@@ -510,6 +510,8 @@ static const char *ti_dmsc_message_name_from_id(uint16_t msg_id)
         return "SET_CTRL";
     case TISCI_MSG_GET_STATUS:
         return "GET_STATUS";
+    case TISCI_MSG_WAIT_PROC_BOOT_STATUS:
+        return "WAIT_PROC_BOOT_STATUS";
     default:
         return "UNKNOWN";
     }
@@ -539,11 +541,29 @@ static void ti_dmsc_handle_one(TIDmscClient *client,
  *
  * All handlers push their response through this single choke point so the
  * secure framing only has to be handled in one place.
+ *
+ * It is also the single choke point for TISCI no-response semantics
+ * (TI_SCI_FLAG_REQ_GENERIC_NORESPONSE): if the request currently being
+ * dispatched did not carry TISCI_MSG_FLAG_AOP, the sender does not expect a
+ * reply on this thread at all -- pushing one anyway strands a stale message
+ * in the single-slot RX thread and can corrupt the pairing of the next
+ * request/response. client->cur_req_wants_resp is set from the request's
+ * hdr.flags in ti_dmsc_handle_one() before any handler runs, so every
+ * handler (and the unknown-message NAK path) is covered by this one check
+ * without having to thread the flag through each call site individually.
+ * Callers only test the return value for "falsy means push failed", so a
+ * suppressed response reports success (nbytes) rather than 0, to avoid
+ * spurious "Failed to push ... response" error logs for an intentional
+ * no-op.
  */
 static size_t ti_dmsc_client_respond(TIDmscClient *client,
                                      const uint32_t *words, size_t nbytes)
 {
     TIDmscState *s = client->dmsc;
+
+    if (!client->cur_req_wants_resp) {
+        return nbytes;
+    }
 
     if (client->secure) {
         uint32_t buf[TI_DMSC_MAX_WORDS + 1] = { 0 };
@@ -623,6 +643,15 @@ static void ti_dmsc_send_boot_notification(TIDmscClient *client)
 
     ti_sec_proxy_reset_thread_count(client->dmsc->sec_proxy,
                                     client->tx_thread_id);
+
+    /*
+     * Unsolicited: not a reply to any client request, so the no-response
+     * check in ti_dmsc_client_respond() does not apply here. Force
+     * delivery regardless of whatever cur_req_wants_resp was last left at
+     * by a previously dispatched message (e.g. a no-response SYS_RESET
+     * right before this reset fires).
+     */
+    client->cur_req_wants_resp = true;
 
     if (!ti_dmsc_client_respond(client, (uint32_t *)&notif, sizeof(notif))) {
         qemu_log_mask(LOG_GUEST_ERROR,
@@ -744,6 +773,16 @@ static void ti_dmsc_handle_one(TIDmscClient *client,
 
     TISciMsgHdr hdr = { 0 };
     memcpy(&hdr, words, MIN(sizeof(hdr), nwords * sizeof(uint32_t)));
+
+    /*
+     * TISCI no-response semantics: remember whether this request asked for
+     * a response (TISCI_MSG_FLAG_AOP) before dispatching to a handler or
+     * building the unknown-message NAK below -- ti_dmsc_client_respond()
+     * checks this to decide whether to actually push anything. The handler
+     * itself still runs unconditionally for its side effects (device state
+     * updates, etc.); only the reply is suppressed.
+     */
+    client->cur_req_wants_resp = (hdr.flags & TISCI_MSG_FLAG_AOP) != 0;
 
     if (hdr.type < ARRAY_SIZE(s->msg_handler) && s->msg_handler[hdr.type]) {
         trace_dmsc_new_message_received(hdr.type, ti_dmsc_message_name_from_id(hdr.type),
@@ -1180,6 +1219,43 @@ static void ti_dmsc_handle_get_status(TIDmscClient *client,
                       client->tx_thread_id);
     }
 }
+
+/*
+ * TISCI_MSG_WAIT_PROC_BOOT_STATUS (0xc401): the R5 shutdown path polls this
+ * to check whether a given core reached a particular WFE/WFI status before
+ * tearing it down (u-boot's ti_sci_proc_wait_boot_status()). We do not
+ * model per-core wait/poll semantics, so this is a side-effect-free no-op
+ * handler -- it exists purely so the message is routed here instead of
+ * falling through to the "unknown message type" NAK path, which would log
+ * a misleading warning for a message the SPL legitimately sends. Whether a
+ * reply is actually pushed is governed centrally by
+ * ti_dmsc_client_respond()'s AOP check: u-boot's shutdown path sends this
+ * with hdr.flags = 0 (TI_SCI_FLAG_REQ_GENERIC_NORESPONSE), so in practice
+ * no response goes out; an AOP-flagged caller still gets a bare ACK.
+ */
+static void ti_dmsc_handle_wait_proc_boot_status(TIDmscClient *client,
+                                                 TISciMsgHdr *hdr,
+                                                 uint16_t thread_id,
+                                                 const uint32_t *words,
+                                                 size_t nwords)
+{
+    struct TisciMsgReqWaitProcBootStatus *req =
+        (struct TisciMsgReqWaitProcBootStatus *)words;
+    TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);
+
+    trace_dmsc_handle_wait_proc_boot_status(
+        ti_dmsc_message_name_from_id(hdr->type),
+        ti_dmsc_host_name_from_id(hdr->host),
+        ti_dmsc_proc_name_from_id(req->processor_id),
+        req->processor_id);
+
+    if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push WAIT_PROC_BOOT_STATUS response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
 static void ti_dmsc_handle_set_device_state(TIDmscClient *client,
                                             TISciMsgHdr *hdr,
                                             uint16_t thread_id,
@@ -1353,6 +1429,8 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     s->msg_handler[TISCI_MSG_GET_DEVICE] = ti_dmsc_handle_get_device;
     s->msg_handler[TISCI_MSG_SET_DEVICE] = ti_dmsc_handle_set_device_state;
     s->msg_handler[TISCI_MSG_GET_STATUS] = ti_dmsc_handle_get_status;
+    s->msg_handler[TISCI_MSG_WAIT_PROC_BOOT_STATUS] =
+        ti_dmsc_handle_wait_proc_boot_status;
     s->msg_handler[TISCI_MSG_SET_DEVICE_RESETS] =
         ti_dmsc_handle_set_device_resets;
     s->msg_handler[TISCI_MSG_GET_CLOCK] = ti_dmsc_handle_get_clock;

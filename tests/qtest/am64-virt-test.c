@@ -144,6 +144,63 @@ static void test_dmsc_r5_get_freq(void)
     qtest_quit(qts);
 }
 
+/*
+ * TISCI no-response semantics (TI_SCI_FLAG_REQ_GENERIC_NORESPONSE): u-boot's
+ * R5 shutdown path sends WAIT_PROC_BOOT_STATUS (0xc401) and SET_DEVICE
+ * (0x0200) with hdr.flags = 0, i.e. without TISCI_MSG_FLAG_AOP. A real DMSC
+ * pushes no reply at all in that case; a response would strand a stale
+ * message in the single-slot RX thread and can corrupt the pairing of the
+ * next request/response. Verify the RX thread's message count stays at 0
+ * for both messages, then sanity-check that a normal AOP-flagged message
+ * still gets its response.
+ */
+static void test_dmsc_r5_no_response_flag(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    /*
+     * Consume the boot notification pre-queued on thread 0 at reset: reading
+     * the last data word (offset 0x3c, register 15) is what
+     * ti_sec_proxy_read_target() uses to clear an inbound thread's message
+     * count (see hw/misc/ti-sec-proxy.c).
+     */
+    if (qtest_readl(qts, SP_RT(0)) & 0xff) {
+        qtest_readl(qts, SP_TARGET(0) + 0x3c);
+    }
+
+    /* WAIT_PROC_BOOT_STATUS (0xc401), hdr.flags = 0 -> NO response */
+    qtest_writel(qts, SP_TARGET(1) + 0x04, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x08, 0x0a23c401);
+    qtest_writel(qts, SP_TARGET(1) + 0x0c, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x3c, 0x00000000);
+    g_usleep(50 * 1000);
+    g_assert_cmphex(qtest_readl(qts, SP_RT(0)) & 0xff, ==, 0);
+
+    /* SET_DEVICE (0x0200) with flags = 0 -> NO response either */
+    qtest_writel(qts, SP_TARGET(1) + 0x04, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x08, 0x0a230200);
+    qtest_writel(qts, SP_TARGET(1) + 0x0c, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x10, 121);   /* device id */
+    qtest_writel(qts, SP_TARGET(1) + 0x14, 0);     /* state off */
+    qtest_writel(qts, SP_TARGET(1) + 0x3c, 0x00000000);
+    g_usleep(50 * 1000);
+    g_assert_cmphex(qtest_readl(qts, SP_RT(0)) & 0xff, ==, 0);
+
+    /* sanity: an AOP message still gets a response */
+    qtest_writel(qts, SP_TARGET(1) + 0x04, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x08, 0x0a230002);   /* VERSION */
+    qtest_writel(qts, SP_TARGET(1) + 0x0c, 0x00000002);
+    qtest_writel(qts, SP_TARGET(1) + 0x3c, 0x00000000);
+    for (int i = 0; i < 100; i++) {
+        if (qtest_readl(qts, SP_RT(0)) & 0xff) {
+            break;
+        }
+        g_usleep(10 * 1000);
+    }
+    g_assert_cmphex(qtest_readl(qts, SP_RT(0)) & 0xff, >, 0);
+    qtest_quit(qts);
+}
+
 static void test_dmtimer_counts(void)
 {
     QTestState *qts = qtest_init("-machine am64-virt");
@@ -275,6 +332,8 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/devstat", test_devstat);
     qtest_add_func("/am64-virt/dmsc-r5-version", test_dmsc_r5_version);
     qtest_add_func("/am64-virt/dmsc-r5-get-freq", test_dmsc_r5_get_freq);
+    qtest_add_func("/am64-virt/dmsc-no-response",
+                   test_dmsc_r5_no_response_flag);
     qtest_add_func("/am64-virt/dmtimer", test_dmtimer_counts);
     qtest_add_func("/am64-virt/dmtimer-prescaler", test_dmtimer_prescaler);
     qtest_add_func("/am64-virt/dmtimer-reconfigure", test_dmtimer_reconfigure);
