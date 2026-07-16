@@ -1005,10 +1005,31 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
        * request/response it exchanges with the DMSC carries an extra
        * 4-byte {u16 checksum; u16 reserved} prefix. Mark its rx thread as
        * secure so the DMSC strips/prepends that framing.
+       *
+       * The same is true for the A53's own secure-world clients: ATF/BL31
+       * (TF-A lts-v2.10.4, plat/ti/k3/common/drivers/sec_proxy/sec_proxy.c
+       * k3_sec_proxy_send()) unconditionally writes a 4-byte
+       * {checksum=0,reserved=0} secure_header word ahead of the TISCI
+       * payload on its TX thread (K3_SEC_PROXY_LITE SP_HIGH_PRIORITY = 9,
+       * i.e. A53_0_WRITE_THREAD_ID). OP-TEE 4.1.0
+       * (core/arch/arm/plat-k3/drivers/{sec_proxy,ti_sci_protocol}.h) sends
+       * the identical 4-byte prefix, just folded into its own
+       * "struct ti_sci_msg_hdr { struct ti_sci_secure_msg_hdr sec_hdr; ... }"
+       * on its TX thread (SEC_PROXY_REQUEST_THREAD = 11, i.e.
+       * A53_1_WRITE_THREAD_ID). Without marking these two threads secure,
+       * ti_dmsc_handle_one() misparses every request's type/host/flags by
+       * one word and ti_dmsc_client_respond() omits the matching prefix on
+       * the way back, which is the root cause of BL31's "Timeout waiting
+       * for thread SP_RESPONSE to fill" / OP-TEE's
+       * "k3_sec_proxy_verify_thread: Queue is busy" (DMSC never replies on
+       * the RX thread because the mis-decoded request silently fails or is
+       * NAK'd with a garbled header).
        */
       QList *secure_rx = qlist_new();
 
       qlist_append_int(secure_rx, MAIN_0_R5_0_WRITE_THREAD_ID);
+      qlist_append_int(secure_rx, A53_0_WRITE_THREAD_ID);
+      qlist_append_int(secure_rx, A53_1_WRITE_THREAD_ID);
       qdev_prop_set_array(DEVICE(&s->dmsc), "secure-rx-threads", secure_rx);
   }
   qdev_prop_set_uint64(DEVICE(&s->dmsc), "m4-cpu-id", s->a53_cpus);

@@ -402,6 +402,54 @@ static void test_sdhci_present(void)
     qtest_quit(qts);
 }
 
+/*
+ * A53_0's TISCI transport (ATF/BL31's SP_HIGH_PRIORITY(9)/SP_RESPONSE(8)
+ * thread pair, TF-A lts-v2.10.4 plat/ti/k3/common/drivers/sec_proxy/
+ * sec_proxy.c) carries the same 4-byte {checksum=0,reserved=0} secure
+ * prefix as the R5 SPL's thread pair, but was not marked as a "secure" DMSC
+ * client -- ti_dmsc_handle_one() would misparse the header by one word and
+ * ti_dmsc_client_respond() would omit the matching prefix on the response,
+ * which is the root cause behind BL31's "Timeout waiting for thread
+ * SP_RESPONSE to fill" / OP-TEE's "Queue is busy" (see hw/arm/ti-am64x.c
+ * for the fix and full citation). This exercises A53_0's channel exactly
+ * like test_dmsc_r5_version() exercises the R5's, just on threads 9/8
+ * with host id TISCI_HOST_ID_A53_0 (10) instead of 1/0 with host 35.
+ */
+static void test_dmsc_a53_secure_version(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    if (qtest_readl(qts, SP_RT(8)) & 0xff) {
+        qtest_readl(qts, SP_TARGET(8) + 0x3c);
+    }
+
+    /*
+     * Secure-host TISCI VERSION request as ATF's k3_sec_proxy_send() sends
+     * it on its TX (write) thread:
+     * word0 = secure header {u16 checksum=0; u16 reserved=0}
+     * word1 = {u16 type=0x0002; u8 host=10 (TISCI_HOST_ID_A53_0); u8 seq}
+     * word2 = flags = TISCI_MSG_FLAG_AOP (0x2)
+     */
+    qtest_writel(qts, SP_TARGET(9) + 0x04, 0x00000000);
+    qtest_writel(qts, SP_TARGET(9) + 0x08, 0x010a0002);
+    qtest_writel(qts, SP_TARGET(9) + 0x0c, 0x00000002);
+    qtest_writel(qts, SP_TARGET(9) + 0x3c, 0x00000000);
+
+    for (int i = 0; i < 100; i++) {
+        if (qtest_readl(qts, SP_RT(8)) & 0xff) {
+            break;
+        }
+        g_usleep(10 * 1000);
+    }
+    g_assert_cmphex(qtest_readl(qts, SP_RT(8)) & 0xff, >, 0);
+
+    /* type echoed back correctly (0x0002) and the ACK bit is set */
+    g_assert_cmphex(qtest_readl(qts, SP_TARGET(8) + 0x08) & 0xffff,
+                    ==, 0x0002);
+    g_assert_cmphex(qtest_readl(qts, SP_TARGET(8) + 0x0c) & 0x2, ==, 0x2);
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -421,5 +469,7 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/gicv3", test_gicv3_present);
     qtest_add_func("/am64-virt/ddrss-stub", test_ddrss_stub);
     qtest_add_func("/am64-virt/sdhci", test_sdhci_present);
+    qtest_add_func("/am64-virt/dmsc-a53-secure-version",
+                   test_dmsc_a53_secure_version);
     return g_test_run();
 }
