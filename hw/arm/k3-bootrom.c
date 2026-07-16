@@ -32,12 +32,36 @@
 typedef struct K3BootRomReset {
     ARMCPU *cpu;
     uint64_t entry;
+    TIAM64xState *soc;
 } K3BootRomReset;
 
 static void k3_bootrom_cpu_reset(void *opaque)
 {
     K3BootRomReset *r = opaque;
     CPUState *cs = CPU(r->cpu);
+
+    /*
+     * On the AM64x a real SoC/warm reset returns every core to its
+     * reset state and only the R5F boot core runs out of the mask ROM;
+     * the A53 cluster stays powered off until the R5 SPL cold-starts it
+     * again through TISCI (see ti_dmsc SET_DEVICE -> arm_set_cpu_on()).
+     *
+     * QEMU's machine reset does not walk the A53 cores here (only the R5
+     * boot core is re-armed by this hook), so after the first boot they
+     * are left in PSCI_ON with the state BL31/OP-TEE/u-boot left behind.
+     * On the next boot the R5 SPL's arm_set_cpu_on() then returns
+     * ALREADY_ON and never re-enters BL31 -- the A53 chain silently
+     * hangs right after "Starting ATF on ARM64 core...".
+     *
+     * Force each A53 core back through cpu_reset() so it lands in its
+     * start-powered-off (PSCI_OFF) reset state, exactly as on a cold
+     * boot, making the TISCI cold-start on the following boot effective.
+     */
+    if (r->soc) {
+        for (unsigned i = 0; i < r->soc->a53_cpus; i++) {
+            cpu_reset(CPU(&r->soc->a53[i]));
+        }
+    }
 
     cpu_reset(cs);
     cpu_set_pc(cs, r->entry);
@@ -103,6 +127,7 @@ void k3_bootrom_load(TIAM64xState *soc, const char *filename, Error **errp)
     r = g_new0(K3BootRomReset, 1);
     r->cpu = &soc->r5[0];
     r->entry = sbl->dest_addr;
+    r->soc = soc;
     qemu_register_reset(k3_bootrom_cpu_reset, r);
     trace_k3_bootrom_boot(sbl->dest_addr);
 }
