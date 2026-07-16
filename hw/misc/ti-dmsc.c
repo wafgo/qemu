@@ -17,6 +17,7 @@
 #include "hw/qdev-core.h"
 #include "hw/resettable.h"
 #include "system/reset.h"
+#include "system/runstate.h"
 #include "target/arm/arm-powerctl.h"
 #include "qemu/main-loop.h"
 #include "hw/misc/ti-dmsc.h"
@@ -1122,6 +1123,34 @@ static void ti_dmsc_handover_proc(TIDmscClient *client, TISciMsgHdr *hdr,
     }
 }
 
+/*
+ * TISCI_MSG_SYS_RESET (0x0005): a full-system reset request. A guest
+ * reboot walks Linux/u-boot `reset` -> PSCI SYSTEM_RESET -> TF-A
+ * -> ti_sci_msg_req_reboot, which sends this to the DMSC. TISCI
+ * defines it as a no-response message (sent with flags==0), so the
+ * generic no-handler path would silently drop it and the guest would
+ * hang waiting for the reset to take effect. Model TIFS's behaviour by
+ * asking QEMU to reset the whole machine; the k3-bootrom reset hook
+ * then re-arms the R5 boot core and re-runs the chain, exactly like a
+ * real warm reset. If the request unusually asked for an ACK, emit the
+ * bare-header response before tearing the machine down.
+ */
+static void ti_dmsc_handle_sys_reset(TIDmscClient *client, TISciMsgHdr *hdr,
+                                     uint16_t thread_id, const uint32_t *words,
+                                     size_t nwords)
+{
+    TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);
+
+    trace_dmsc_handle_sys_reset(ti_dmsc_message_name_from_id(hdr->type),
+                                ti_dmsc_host_name_from_id(hdr->host));
+
+    if (hdr->flags & TISCI_MSG_FLAG_AOP) {
+        ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp));
+    }
+
+    qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+}
+
 static void ti_dmsc_query_hw_caps(TIDmscClient *client,
                                       TISciMsgHdr *hdr,
                                       uint16_t thread_id,
@@ -1673,6 +1702,7 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     s->msg_handler[TISCI_MSG_PROC_RELEASE] = ti_dmsc_stop_proc;
     s->msg_handler[TISCI_MSG_PROC_REQUEST] = ti_dmsc_start_proc;
     s->msg_handler[TISCI_MSG_PROC_HANDOVER] = ti_dmsc_handover_proc;
+    s->msg_handler[TISCI_MSG_SYS_RESET] = ti_dmsc_handle_sys_reset;
     s->msg_handler[TISCI_MSG_QUERY_FW_CAPS] = ti_dmsc_query_hw_caps;
     s->msg_handler[TISCI_MSG_VERSION] = ti_dmsc_get_version;
     s->msg_handler[TISCI_MSG_GET_DEVICE] = ti_dmsc_handle_get_device;

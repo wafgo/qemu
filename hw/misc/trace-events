@@ -447,6 +447,7 @@ dmsc_handover_proc(const char* proc_name, int proc_id, const char *new_host, con
 dmsc_a53_bootvector(uint8_t proc_id, uint64_t bootvector) "Captured boot vector for A53 proc %u: 0x%" PRIx64
 dmsc_a53_start(int core, uint64_t entry) "Cold-starting A53 core %d at entry 0x%" PRIx64 " (EL3/AArch64)"
 dmsc_a53_stop(int core) "Powering off A53 core %d"
+dmsc_handle_sys_reset(const char *type, const char *host_name) "%s received from host %s, requesting machine reset"
 dmsc_handle_fwl_set(const char *type, const char *host_name, uint16_t fwl_id, uint16_t region) "%s received from host %s, fwl_id %u, region %u"
 dmsc_handle_fwl_get(const char *type, const char *host_name, uint16_t fwl_id, uint16_t region) "%s received from host %s, fwl_id %u, region %u"
 dmsc_handle_fwl_change_owner(const char *type, const char *host_name, uint16_t fwl_id, uint16_t region, uint8_t owner_index) "%s received from host %s, fwl_id %u, region %u, owner_index %u"

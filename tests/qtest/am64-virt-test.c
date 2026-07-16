@@ -201,6 +201,39 @@ static void test_dmsc_r5_no_response_flag(void)
     qtest_quit(qts);
 }
 
+/*
+ * TISCI_MSG_SYS_RESET (0x0005): a guest reboot (Linux/u-boot `reset` ->
+ * PSCI SYSTEM_RESET -> TF-A -> ti_sci_msg_req_reboot) sends this to the
+ * DMSC with hdr.flags = 0 (no-response). The DMSC must turn it into a
+ * full machine reset. Send it on the R5 secure thread and confirm QEMU
+ * raises a RESET event.
+ */
+static void test_dmsc_r5_sys_reset(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+
+    /* drain the boot notification pre-queued on thread 0 at reset */
+    if (qtest_readl(qts, SP_RT(0)) & 0xff) {
+        qtest_readl(qts, SP_TARGET(0) + 0x3c);
+    }
+
+    /*
+     * SYS_RESET request:
+     * word0 = secure header {u16 checksum=0; u16 reserved=0}
+     * word1 = {u16 type=0x0005; u8 host=35 (MAIN_0_R5_0); u8 seq=0xa}
+     * word2 = flags = 0 (no-response, as TF-A sends it)
+     */
+    qtest_writel(qts, SP_TARGET(1) + 0x04, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x08, 0x0a230005);
+    qtest_writel(qts, SP_TARGET(1) + 0x0c, 0x00000000);
+    /* commit: write the last data word */
+    qtest_writel(qts, SP_TARGET(1) + 0x3c, 0x00000000);
+
+    /* the DMSC must request a machine reset -> QEMU raises RESET */
+    qtest_qmp_eventwait(qts, "RESET");
+    qtest_quit(qts);
+}
+
 static void test_dmtimer_counts(void)
 {
     QTestState *qts = qtest_init("-machine am64-virt");
@@ -530,6 +563,7 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/dmsc-r5-get-freq", test_dmsc_r5_get_freq);
     qtest_add_func("/am64-virt/dmsc-no-response",
                    test_dmsc_r5_no_response_flag);
+    qtest_add_func("/am64-virt/dmsc-sys-reset", test_dmsc_r5_sys_reset);
     qtest_add_func("/am64-virt/dmsc-bootvector",
                    test_dmsc_r5_bootvector_capture);
     qtest_add_func("/am64-virt/dmtimer", test_dmtimer_counts);
