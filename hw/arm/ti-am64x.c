@@ -1199,8 +1199,24 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
 
           object_property_set_uint(OBJECT(&s->sdhci[i]), "sd-spec-version",
                                    3, &error_abort);
+          /*
+           * capareg 0x157c34b4: base 0x057c34b4 (SDHCI 3.0, ADMA2/SDMA,
+           * 8-bit bus, voltage bits matching the am654 controller) OR the
+           * "64-bit System Bus Support" capability, bit 28 (SDHC_CAPAB.
+           * BUS64BIT, valid for spec version < 4.10 per SD Host Controller
+           * Simplified Spec 3.00 §2.2.24, Capabilities register). The AArch64
+           * A53 SPL is built with CONFIG_DMA_ADDR_T_64BIT and therefore
+           * programs the DMA-select field to ADMA2-64 (Host Control 1
+           * bits[4:3]=0b11) for its SEND_SCR / block reads; QEMU's SDHCI
+           * model gates that path on this capability bit and otherwise
+           * aborts the data transfer ("64 bit ADMA not supported"), which
+           * manifested as the A53 SPL's "Transfer data timeout" / mmc init
+           * -110. The real AM64x MMCSD controllers do advertise 64-bit
+           * ADMA2, so this is faithful; the R5 (AArch32) SPL uses 32-bit
+           * ADMA2 and is unaffected.
+           */
           object_property_set_uint(OBJECT(&s->sdhci[i]), "capareg",
-                                   0x057c34b4, &error_abort);
+                                   0x157c34b4, &error_abort);
           if (!sysbus_realize(sbd, errp)) {
               return;
           }

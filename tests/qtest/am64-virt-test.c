@@ -391,9 +391,13 @@ static void test_sdhci_present(void)
 {
     QTestState *qts = qtest_init("-machine am64-virt");
 
-    /* SDHC capabilities register (0x40) reflects our capareg */
-    g_assert_cmphex(qtest_readl(qts, SDHCI_SD_BASE + 0x40), ==, 0x057c34b4);
-    g_assert_cmphex(qtest_readl(qts, SDHCI_EMMC_BASE + 0x40), ==, 0x057c34b4);
+    /*
+     * SDHC capabilities register (0x40) reflects our capareg. Bit 28
+     * (64-bit System Bus Support) is set so the AArch64 A53 SPL's
+     * ADMA2-64 transfers are accepted by the SDHCI model.
+     */
+    g_assert_cmphex(qtest_readl(qts, SDHCI_SD_BASE + 0x40), ==, 0x157c34b4);
+    g_assert_cmphex(qtest_readl(qts, SDHCI_EMMC_BASE + 0x40), ==, 0x157c34b4);
     /* host controller version (0xFE, 16-bit): spec 3.00 = 0x0002 */
     g_assert_cmphex(qtest_readw(qts, SDHCI_SD_BASE + 0xFE) & 0xff, ==, 2);
     /* PHY window: PHY_STAT1 reads CALDONE|DLLRDY */
