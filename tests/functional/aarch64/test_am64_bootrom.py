@@ -84,7 +84,11 @@ def make_tiboot3():
 
 class Am64BootRom(QemuSystemTest):
 
-    timeout = 60
+    # The gated full-chain test (test_fluxos_boot_chain) reaches the u-boot
+    # autoboot prompt in ~18 s on a dev box; 120 s leaves ample margin on
+    # slower CI runners. The other (fast) subtests are unaffected -- this is
+    # an upper bound, not a fixed delay.
+    timeout = 120
 
     def boot_bios(self, path):
         self.set_machine('am64-virt')
@@ -113,7 +117,7 @@ class Am64BootRom(QemuSystemTest):
                 'set QEMU_TEST_TIBOOT3=<path to tiboot3.bin>')
     @skipUnless(os.getenv('QEMU_TEST_WIC'),
                 'set QEMU_TEST_WIC=<path to fluxos.wic>')
-    def test_fluxos_spl_loads_tispl(self):
+    def test_fluxos_boot_chain(self):
         wic = os.path.abspath(os.getenv('QEMU_TEST_WIC'))
 
         # QEMU's sd-card device rejects raw images whose size is not a
@@ -140,9 +144,24 @@ class Am64BootRom(QemuSystemTest):
                          '-drive',
                          'if=sd,format=qcow2,file=' + overlay)
         self.vm.launch()
+        # R5 SPL milestones (phase 2): SPL banner, SD boot device, ATF handoff.
         wait_for_console_pattern(self, 'U-Boot SPL')
         wait_for_console_pattern(self, 'Trying to boot from MMC2')
         wait_for_console_pattern(self, 'Starting ATF on ARM64 core')
+        # A53 handover chain (phase 3): ATF BL31 runs, then the A53-side
+        # U-Boot SPL re-enumerates the SD and loads u-boot proper, which
+        # reaches its autoboot prompt.
+        #
+        # Note: OP-TEE runs between BL31 and the A53 SPL but its
+        # "I/TC: OP-TEE version:" banner is compiled out at this FluxOS
+        # build's log level, so it is deliberately NOT used as a marker
+        # (it would never appear and would hang the test). The second
+        # "U-Boot SPL" line proves the A53 SPL started after OP-TEE.
+        wait_for_console_pattern(self, 'NOTICE:  BL31:')
+        wait_for_console_pattern(self, 'U-Boot SPL')       # A53-side SPL
+        wait_for_console_pattern(self, 'U-Boot 2025.01')   # u-boot proper
+        wait_for_console_pattern(self, 'Model: PHYTEC phyBOARD-Electra')
+        wait_for_console_pattern(self, 'Hit any key to stop autoboot')
 
     # Standalone arm64 kernel (Ubuntu bionic-updates netboot installer),
     # same Asset used by test_xlnx_versal.py.  It ships PL011 + GICv3
