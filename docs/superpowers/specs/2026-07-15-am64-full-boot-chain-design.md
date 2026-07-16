@@ -212,7 +212,7 @@ level access verified via qtests where practical.
   `13c1c79b56`, `a3ea575848`, `45139e056e`, `5edd545343`, `754e3d0dbb`,
   `dd014bd0b9`, `d3b4f4be0d`.
 
-### Phase 3 — A53 handover: ATF + OP-TEE + u-boot (QEMU)
+### Phase 3 — A53 handover: ATF + OP-TEE + u-boot (QEMU) [IMPLEMENTED 2026-07-16]
 
 - **DMSC proc-boot:** implement the TISCI messages the R5 SPL uses to
   start the A53 (`PROC_SET_CONFIG`, `PROC_AUTH_BOOT`/handover, device
@@ -231,6 +231,98 @@ level access verified via qtests where practical.
 **Milestone:** u-boot proper prompt on UART0, loaded through the
 complete real chain from the WIC image; `mmc part` lists the WIC
 partitions from u-boot.
+
+**As built (2026-07-16):**
+
+The full real chain now runs from `tiboot3.bin` on the R5 through ATF,
+OP-TEE and the A53 U-Boot SPL to the **U-Boot proper autoboot prompt**,
+booting off the unmodified FluxOS WIC on the emulated SD controller.
+Console end state:
+
+```text
+Starting ATF on ARM64 core...
+NOTICE:  BL31: v2.10.4(release):lts-v2.10.4-dirty
+U-Boot SPL 2025.01-... (A53-side SPL)
+U-Boot 2025.01-...
+SoC:   ... GP
+Model: PHYTEC phyBOARD-Electra-AM64x RDK
+MMC:   mmc@fa10000: 0, mmc@fa00000: 1
+Hit any key to stop autoboot:  2  1  0
+=>            (interactive u-boot shell)
+```
+
+Reached in ~18-21 s on a dev box. Kernel + DTB load is deliberately
+**Phase 4** (the distro/FIT bootflow needs the meta-cmblu `sysfw_desc`
+u-boot patch and the QEMU DTB config); today's autoboot falls through
+to the `=>` prompt after the EFI/`mmc`/`usb`/`ethernet` bootflow hunt
+finds no bootable FIT — expected.
+
+- **A53 start mechanism (Tasks 1+2):** the R5 SPL configures the A53
+  proc-boot over secure-framed TISCI. The DMSC captures the boot vector
+  from `PROC_SET_CONFIG` (`0xc000`) — `bootvector_low` sits at the
+  unaligned byte offset 9 of the message, straddling two 32-bit
+  registers, so it is reassembled from the byte stream, not a single
+  register read — stores it per A53 core, and echoes it back in
+  `PROC_GET_STATUS` (`0xc400`). On the `SET_DEVICE`/`PROC_HANDOVER`
+  power-on (device 135/136 → `SW_STATE_ON`) the DMSC cold-starts the
+  core with `arm_set_cpu_on(a53_cpu_id_base + core, bootvector, 0,
+  EL3h, AArch64=true)`, mirroring the existing M4 boot control;
+  `ALREADY_ON` is intentionally ignored so a re-issued start is
+  idempotent.
+- **No-response (AOP) flag rule (Task 1):** TISCI messages whose
+  `hdr.flags` carries neither `ACKED` nor `NORESPONSE` (i.e. `flags == 0`,
+  the "no response requested" case ATF/u-boot use for fire-and-forget
+  `SET_DEVICE`/`SYS_RESET`) are processed **without** pushing any
+  reply onto the sec-proxy RX thread. Replying unconditionally
+  previously stalled the transport (queue never drained).
+- **Secure sec-proxy framing for BL31/OP-TEE hosts (Task 3):** both
+  A53 client write threads (`A53_0_WRITE_THREAD_ID=9`,
+  `A53_1_WRITE_THREAD_ID=11`) are now in the DMSC `secure-rx-threads`
+  set. ATF and OP-TEE prefix every message with the same 4-byte
+  `{checksum, reserved}` secure header the R5 SPL uses (payload starts
+  at word 2 / offset `0x08`); without the secure flag the DMSC misread
+  the zeroed header word as the TISCI header and dropped/NAK'd every
+  A53 request.
+- **OP-TEE TRNG + firewall solution (Task 3):** OP-TEE's SA2UL
+  dependency is met by a minimal **TRNG (EIP-76) stub** at
+  `0x40910000` (size `0x80`) plus **bare-ACK TISCI handlers** for the
+  firewall / DKEK / SWREV / KEYCNT-KEYREV messages OP-TEE issues
+  (`TISCI_MSG_FWL_SET/GET/CHANGE_OWNER = 0x9000/0x9001/0x9002`,
+  `SA2UL_GET_DKEK = 0x9029`, `READ_SWREV = 0x9033`,
+  `READ_KEYCNT_KEYREV = 0x9034`). This is decision-tree branch (a) — a
+  minimal SA2UL/TRNG stub — so the **unmodified-artifact property is
+  preserved**; branch (b) (QEMU-only tispl without OP-TEE) was not
+  needed. **OP-TEE runs to completion and no longer panics.** Its
+  `I/TC: OP-TEE version:` info banner is compiled out at this FluxOS
+  build's log level (only `E/TC:` error lines would surface), so the
+  functional test uses the second `U-Boot SPL` banner — not an OP-TEE
+  line — as proof OP-TEE handed off.
+- **Triage addition — SDHCI 64-bit ADMA (Task 4):** the only new fix
+  this phase's acceptance needed. The AArch64 A53 SPL (built with
+  `CONFIG_DMA_ADDR_T_64BIT`) drives the MMCSD DMA-select to ADMA2-64
+  for its `SEND_SCR`/block reads, whereas the AArch32 R5 SPL uses
+  ADMA2-32. QEMU's SDHCI model gates the 64-bit ADMA path on the
+  capabilities "64-bit System Bus Support" bit, which the machine's
+  `capareg 0x057c34b4` left clear → `64 bit ADMA not supported`, no
+  transfer, `Transfer data timeout`, `mmc init failed -110`, board
+  reset. Fixed by setting bit 28 (`SDHC_CAPAB.BUS64BIT`, spec 3.00
+  §2.2.24) → `capareg 0x157c34b4` in `hw/arm/ti-am64x.c`; faithful
+  because the real AM64x MMCSD advertises 64-bit ADMA2. No `hw/sd/`
+  (shared upstream) change was required. The anticipated
+  `0xc101 SET_PROC_BOOT_CTRL`, ESM/PSC, or additional runtime-TISCI
+  triage did **not** materialise — the Task 1-3 infrastructure plus
+  this single capability bit carried ATF, OP-TEE, the A53 SPL and
+  u-boot proper all the way to the prompt.
+- **Arch timer / GTC:** BL31 prints `GTC is disabled! ... Assuming
+  200000000 Hz` and continues — the generic timer counts correctly
+  from the CPU's CNTFRQ; the GTC control block is not modelled and ATF
+  falls back to the assumed frequency without ill effect. Harmless.
+- **Commits:** `dabbebd2d7` (no-response flag), `566c0abc6d`
+  (bootvector capture + A53 cold-start), `064c1cc9a8` (A53 sec-proxy
+  secure threads), `0aba4abbf4` (TRNG stub + firewall ACKs),
+  `8798322341` (64-bit ADMA capareg + qtest),
+  `fc7713f2c2` (gated functional test to the u-boot prompt),
+  plus this doc.
 
 ### Phase 4 — Yocto integration (meta-cmblu)
 
@@ -305,10 +397,22 @@ errors fail fast before the guest starts.
   confirmed as the correct path since the WIC carries no eMMC boot0
   content; 512 KiB SD-card image alignment handled via a qcow2 overlay
   in the functional test rather than mutating the WIC.
-- Ph. 3: exact TISCI proc-boot sequence of u-boot v2025.01-phy2
-  (`arch/arm/mach-k3/r5/...`, `common.c: start_non_linux_remote_cores`
-  / `k3_sysfw_...`); ATF k3 platform's TISCI usage for PSCI; OP-TEE
-  AM64 platform hardware dependencies.
+- Ph. 3: ✓ RESOLVED — the R5 SPL proc-boot sequence is
+  `PROC_SET_CONFIG` (`0xc000`, captures the unaligned `bootvector_low`
+  at byte 9) → `SET_DEVICE`/`PROC_HANDOVER` power-on (device 135/136 →
+  A53 cold-start via `arm_set_cpu_on(..., EL3h, AArch64)`); the
+  no-response (AOP) `flags == 0` case must be processed with **no**
+  sec-proxy reply. ATF/OP-TEE reuse the R5's 4-byte secure-header
+  framing, so both A53 write threads (IDs 9/11) belong in
+  `secure-rx-threads`. OP-TEE's only AM64 hardware dependencies that
+  bite are SA2UL: satisfied by a minimal TRNG (EIP-76) stub
+  (`0x40910000`, size `0x80`) + bare-ACK firewall/DKEK/SWREV/KEYCNT
+  handlers (`0x9000/0x9001/0x9002/0x9029/0x9033/0x9034`) — decision-tree
+  branch (a), unmodified artifact preserved, OP-TEE runs to completion.
+  The A53 SPL additionally requires the SDHCI 64-bit-ADMA capability
+  bit (`capareg` bit 28) that the AArch32 R5 path never exercised. No
+  `0xc101`/ESM/PSC triage was needed. Boot ends at the u-boot autoboot
+  prompt; kernel/FIT load is Phase 4.
 - Ph. 4: mechanism for the `sysfw_desc` u-boot patch (env injection
   point); fitImage configuration naming; FluxOS kernel config flags
   (`sdhci_am654`, virtio, PCI).
