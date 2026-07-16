@@ -368,7 +368,7 @@ errors fail fast before the guest starts.
 
 ## Testing
 
-- Every phase keeps the full existing net green (8 qtests, 6 unit, 2
+- Every phase keeps the full existing net green (18 qtests, 6 unit, 4
   functional subtests) — regressions gate every commit.
 - New qtests per phase: GICv3 presence/IRQ delivery (ph. 1), SDHCI
   register-level + DDRSS stub reads (ph. 2), proc-boot TISCI exchange
