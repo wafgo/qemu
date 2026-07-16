@@ -305,6 +305,85 @@ static void test_ddrss_stub(void)
     qtest_quit(qts);
 }
 
+/*
+ * TISCI_MSG_SET_CONFIG (0xc100) capturing an A53 bootvector, followed by
+ * PROC_GET_STATUS (0xc400) echoing it back.
+ *
+ * Request payload (struct ti_sci_msg_req_set_proc_boot_config, QEMU_PACKED,
+ * unaligned): hdr(8) + processor_id(1) + bootvector_low(4) +
+ * bootvector_high(4) + config_flags_set(4) + config_flags_clear(4).
+ * bootvector_low = 0x701c0000 (OCSRAM, matches u-boot's a53 entry point)
+ * as little-endian bytes 00 00 1c 70, landing at payload bytes 1..4 (right
+ * after the 1-byte processor_id at payload byte 0):
+ *   bytes 8..11  = 20 00 00 1c   (proc_id=0x20, bvlow[7:0..23:16]=00,00,1c)
+ *   bytes 12..15 = 70 00 00 00   (bvlow[31:24]=0x70, bvhigh[23:0]=0)
+ *   bytes 16..19 = 00 00 00 00   (bvhigh[31:24], cfg_set[23:0])
+ *   bytes 20..23 = 00 00 00 00   (cfg_set[31:24] .. )
+ * As little-endian 32-bit register writes that byte stream is
+ * 0x1c000020 / 0x00000070 / 0 / 0.
+ */
+static void test_dmsc_r5_bootvector_capture(void)
+{
+    QTestState *qts = qtest_init("-machine am64-virt");
+    uint32_t reg4, reg5, bootvector_lo;
+
+    /* drain the boot notification pre-queued on thread 0 at reset */
+    if (qtest_readl(qts, SP_RT(0)) & 0xff) {
+        qtest_readl(qts, SP_TARGET(0) + 0x3c);
+    }
+
+    qtest_writel(qts, SP_TARGET(1) + 0x04, 0x00000000);      /* sec hdr */
+    qtest_writel(qts, SP_TARGET(1) + 0x08, 0x0a23c100);      /* hdr */
+    qtest_writel(qts, SP_TARGET(1) + 0x0c, 0x00000002);      /* AOP */
+    qtest_writel(qts, SP_TARGET(1) + 0x10, 0x1c000020);      /* see ^ */
+    qtest_writel(qts, SP_TARGET(1) + 0x14, 0x00000070);
+    qtest_writel(qts, SP_TARGET(1) + 0x18, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x1c, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x3c, 0x00000000);
+    for (int i = 0; i < 100 && !(qtest_readl(qts, SP_RT(0)) & 0xff); i++) {
+        g_usleep(10 * 1000);
+    }
+    g_assert_cmphex(qtest_readl(qts, SP_TARGET(0) + 0x0c) & 0x2, ==, 0x2);
+    qtest_readl(qts, SP_TARGET(0) + 0x3c);                    /* drain */
+
+    /* PROC_GET_STATUS (0xc400), proc 32: bootvector_low must echo */
+    qtest_writel(qts, SP_TARGET(1) + 0x04, 0x00000000);
+    qtest_writel(qts, SP_TARGET(1) + 0x08, 0x0a23c400);
+    qtest_writel(qts, SP_TARGET(1) + 0x0c, 0x00000002);
+    qtest_writel(qts, SP_TARGET(1) + 0x10, 32);               /* proc_id */
+    qtest_writel(qts, SP_TARGET(1) + 0x3c, 0x00000000);
+    for (int i = 0; i < 100 && !(qtest_readl(qts, SP_RT(0)) & 0xff); i++) {
+        g_usleep(10 * 1000);
+    }
+
+    /*
+     * struct TisciMsgProcGetStatusResp (ti-dmsc.h), QEMU_PACKED:
+     *   hdr(8) + processor_id(1) + bootvector_lo(4) + bootvector_hi(4) + ...
+     * Framing: ti_dmsc_client_respond() prepends a 4-byte zero word ahead
+     * of the response for secure clients (see ti_sec_proxy_push_msg(),
+     * which writes into current_message[1..]), so the response bytes land
+     * on SP_TARGET registers as:
+     *   +0x04 = secure zero prefix        (register 1)
+     *   +0x08 = resp bytes 0-3: hdr type/host/seq   (register 2)
+     *   +0x0c = resp bytes 4-7: hdr.flags           (register 3)
+     *   +0x10 = resp bytes 8-11                     (register 4)
+     *   +0x14 = resp bytes 12-15                    (register 5)
+     * resp byte 8 = processor_id, so bootvector_lo (resp bytes 9..12) is
+     * NOT register-aligned -- it straddles register 4 (bytes 9-11, i.e.
+     * bootvector_lo[23:0]) and register 5 (byte 12, i.e. bootvector_lo
+     * [31:24]). A single aligned 32-bit MMIO read cannot recover the packed
+     * field directly (ti_sec_proxy_read_target()'s size==4 path returns
+     * the whole register, ignoring any intra-register byte offset), so
+     * reconstruct it from both registers:
+     *   bootvector_lo = (reg4 >> 8) | ((reg5 & 0xff) << 24)
+     */
+    reg4 = qtest_readl(qts, SP_TARGET(0) + 0x10);
+    reg5 = qtest_readl(qts, SP_TARGET(0) + 0x14);
+    bootvector_lo = (reg4 >> 8) | ((reg5 & 0xff) << 24);
+    g_assert_cmphex(bootvector_lo, ==, 0x701c0000);
+    qtest_quit(qts);
+}
+
 #define SDHCI_SD_BASE   0x0fa00000ULL
 #define SDHCI_EMMC_BASE 0x0fa10000ULL
 
@@ -334,6 +413,8 @@ int main(int argc, char **argv)
     qtest_add_func("/am64-virt/dmsc-r5-get-freq", test_dmsc_r5_get_freq);
     qtest_add_func("/am64-virt/dmsc-no-response",
                    test_dmsc_r5_no_response_flag);
+    qtest_add_func("/am64-virt/dmsc-bootvector",
+                   test_dmsc_r5_bootvector_capture);
     qtest_add_func("/am64-virt/dmtimer", test_dmtimer_counts);
     qtest_add_func("/am64-virt/dmtimer-prescaler", test_dmtimer_prescaler);
     qtest_add_func("/am64-virt/dmtimer-reconfigure", test_dmtimer_reconfigure);

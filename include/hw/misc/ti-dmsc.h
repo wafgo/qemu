@@ -389,9 +389,16 @@ struct TisciMsgReqWaitProcBootStatus {
     uint8_t processor_id;
 } QEMU_PACKED;
 
+/*
+ * Mirrors u-boot's/Linux's struct ti_sci_msg_req_set_device_state: note the
+ * u32 reserved field between id and state -- without it the state byte is
+ * read from the middle of `reserved` (typically stale xfer-buffer bytes),
+ * which is why the A53 power-on request used to decode as UNKNOWN_STATE.
+ */
 struct TisciMsgSetDeviceReq {
     TISciMsgHdr hdr;
     uint32_t id;
+    uint32_t reserved;
     uint8_t state;
 } QEMU_PACKED;
 
@@ -575,6 +582,7 @@ struct TIDmscState {
     uint32_t num_secure_rx_threads;
     uint16_t *secure_rx_threads;
     uint64_t m4_cpu_id;    /* QEMU CPU index used for MCU M4 */
+    uint64_t a53_cpu_id_base; /* MP affinity of A53 core 0 (core 1 = +1) */
 
     uint32_t msg_words;    /* usually 16 */
 
@@ -589,6 +597,11 @@ struct TIDmscState {
     uint8_t dev_hw_state[TISCI_DEV_ID_MAX];
     uint8_t dev_prog_state[TISCI_DEV_ID_MAX];
     bool m4_running;
+    /*
+     * Boot vectors captured from TISCI_MSG_SET_CONFIG for the A53 cores:
+     * index 0 = SCICLIENT_PROCID_A53_CL0_C0 (0x20), index 1 = ..._C1 (0x21).
+     */
+    uint64_t proc_bootvector[2];
 };
 
 

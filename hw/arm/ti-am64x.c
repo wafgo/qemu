@@ -844,6 +844,13 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
                       s->a53_start_powered_off || i > 0);
     qdev_prop_set_bit(DEVICE(&s->a53[i]), "has_el3", true);
     qdev_prop_set_bit(DEVICE(&s->a53[i]), "has_el2", true);
+    /*
+     * Generic-timer frequency: the AM64x ROM/SPL program CNTFRQ with the
+     * 200 MHz system counter rate that BL31 expects; QEMU's cortex-a53
+     * default (62.5 MHz GTIMER_SCALE) would skew all guest timing math.
+     */
+    object_property_set_int(OBJECT(&s->a53[i]), "cntfrq", 200000000,
+                            &error_abort);
     if (!qdev_realize(DEVICE(&s->a53[i]), NULL, errp)) {
       return;
     }
@@ -1005,6 +1012,11 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
       qdev_prop_set_array(DEVICE(&s->dmsc), "secure-rx-threads", secure_rx);
   }
   qdev_prop_set_uint64(DEVICE(&s->dmsc), "m4-cpu-id", s->a53_cpus);
+  /*
+   * arm_set_cpu_on() addresses cores by MP affinity; the A53s are wired
+   * with mp-affinity == index (see the A53 init loop), so core 0 = 0.
+   */
+  qdev_prop_set_uint64(DEVICE(&s->dmsc), "a53-cpu-id-base", 0);
 
   if (!qdev_realize(DEVICE(&s->dmsc), NULL, errp)) {
     return;

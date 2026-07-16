@@ -444,6 +444,9 @@ dmsc_get_fw_caps(const char* msg, const char *host) "Get FW Caps Request receive
 dmsc_start_proc(const char* proc_name, int proc_id, const char *host) "Requested to start Processor %s (%i) from host %s"
 dmsc_stop_proc(const char* proc_name, int proc_id, const char *host) "Requested to stop Processor %s (%i) from host %s"
 dmsc_handover_proc(const char* proc_name, int proc_id, const char *new_host, const char *host) "Requested to hand over Processor %s (%i) to host %s, from host %s"
+dmsc_a53_bootvector(uint8_t proc_id, uint64_t bootvector) "Captured boot vector for A53 proc %u: 0x%" PRIx64
+dmsc_a53_start(int core, uint64_t entry) "Cold-starting A53 core %d at entry 0x%" PRIx64 " (EL3/AArch64)"
+dmsc_a53_stop(int core) "Powering off A53 core %d"
 
 # ti-rat.c
 rat_enable_region(int idx, uint64_t size, uint64_t source, uint64_t dest) "Enabling RAT Region %u: size 0x%"PRIx64" map 0x%"PRIx64" -> 0x%"PRIx64

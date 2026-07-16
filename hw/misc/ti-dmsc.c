@@ -437,6 +437,7 @@ static void ti_dmsc_init_device_states(TIDmscState *s)
     s->dev_prog_state[TISCI_DEV_MCU_M4FSS0_CORE0] =
         TISCI_MSG_VALUE_DEVICE_HW_STATE_OFF;
     s->m4_running = false;
+    memset(s->proc_bootvector, 0, sizeof(s->proc_bootvector));
 }
 
 static const char *ti_dmsc_message_name_from_id(uint16_t msg_id)
@@ -1202,7 +1203,16 @@ static void ti_dmsc_handle_get_status(TIDmscClient *client,
     resp.config_flags_1 = 0;
     resp.control_flags_1 = 0;
     resp.status_flags_1 = 0;
-    
+
+    if (req->processor_id == SCICLIENT_PROCID_A53_CL0_C0 ||
+        req->processor_id == SCICLIENT_PROCID_A53_CL0_C1) {
+        uint64_t bv = s->proc_bootvector[req->processor_id -
+                                         SCICLIENT_PROCID_A53_CL0_C0];
+
+        resp.bootvector_lo = (uint32_t)bv;
+        resp.bootvector_hi = (uint32_t)(bv >> 32);
+    }
+
     if (req->processor_id == SCICLIENT_PROCID_MCU_M4FSS0_C0) {
         resp.status_flags_1 |= TISCI_MSG_VAL_PROC_BOOT_STATUS_FLAG_M4F_WFI;
     }
@@ -1279,6 +1289,34 @@ static void ti_dmsc_handle_set_device_state(TIDmscClient *client,
         s->m4_running = false;
     }
 
+    /*
+     * A53 core power control: the R5 SPL's ATF handover
+     * (u-boot's k3_r5's boot_core / release_resources_for_core_shutdown)
+     * turns the A53 core device on after having programmed its boot
+     * vector via TISCI_MSG_SET_CONFIG. Cold-start the matching vCPU at
+     * that vector, in EL3/AArch64 -- exactly where a real core comes out
+     * of reset to run BL31. arm_set_cpu_on() returning ALREADY_ON for a
+     * core that is already running is harmless, so the return value is
+     * intentionally not checked (mirrors the M4 handling in
+     * ti_dmsc_handle_set_device_resets()).
+     */
+    if (req->id == TISCI_DEV_A53SS0_CORE_0 ||
+        req->id == TISCI_DEV_A53SS0_CORE_1) {
+        int core = req->id - TISCI_DEV_A53SS0_CORE_0;
+        uint64_t cpuid = s->a53_cpu_id_base + core;
+
+        if (req->state == TISCI_MSG_VALUE_DEVICE_SW_STATE_ON) {
+            uint64_t entry = s->proc_bootvector[core];
+
+            trace_dmsc_a53_start(core, entry);
+            arm_set_cpu_on(cpuid, entry, 0, /* target_el */ 3,
+                           /* target_aa64 */ true);
+        } else if (req->state == TISCI_MSG_VALUE_DEVICE_SW_STATE_AUTO_OFF) {
+            trace_dmsc_a53_stop(core);
+            arm_set_cpu_off(cpuid);
+        }
+    }
+
     if (!ti_dmsc_client_respond(client,
                                (uint32_t *)&resp, sizeof(resp))) {
         qemu_log_mask(LOG_GUEST_ERROR,
@@ -1342,20 +1380,45 @@ static void ti_dmsc_handle_board_config(TIDmscClient *client,
 }
 
 /*
- * TISCI_MSG_SET_CONFIG (0xc100): bare-header ACK, same shape as
- * ti_dmsc_handle_board_config() -- the rproc-load path (u-boot's
- * sciclient_procboot / k3_r5_load) only cares that this is ACKed, it does
- * not inspect any response payload.
+ * TISCI_MSG_SET_CONFIG (0xc100): capture the boot vector for the A53
+ * cores, then ACK with a bare header (the rproc-load path -- u-boot's
+ * sciclient_procboot / k3_r5_load -- does not inspect any response
+ * payload).
+ *
+ * The request mirrors u-boot's struct ti_sci_msg_req_set_proc_boot_config,
+ * which is packed: hdr(8) + u8 processor_id + u32 bootvector_low +
+ * u32 bootvector_high + u32 config_flags_set + u32 config_flags_clear.
+ * bootvector_low therefore sits at byte offset 9 -- unaligned -- so it
+ * must be extracted with ldl_le_p() byte loads, never via a struct cast.
+ *
+ * The A53 SPL later powers the core up through TISCI_MSG_SET_DEVICE on
+ * TISCI_DEV_A53SS0_CORE_0/1; ti_dmsc_handle_set_device_state() starts the
+ * vCPU at the vector stored here.
  */
 static void ti_dmsc_handle_proc_set_config(TIDmscClient *client,
                                            TISciMsgHdr *hdr,
                                            uint16_t thread_id,
                                            const uint32_t *words, size_t nwords)
 {
+    TIDmscState *s = client->dmsc;
     TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);
 
     trace_dmsc_handle_proc_set_config(ti_dmsc_message_name_from_id(hdr->type),
                                       ti_dmsc_host_name_from_id(hdr->host));
+
+    if (nwords * sizeof(uint32_t) >= sizeof(TISciMsgHdr) + 9) {
+        /* packed payload right after the 8-byte header */
+        const uint8_t *p = (const uint8_t *)words + sizeof(TISciMsgHdr);
+        uint8_t proc_id = p[0];
+        uint64_t bv = (uint64_t)(uint32_t)ldl_le_p(p + 1) |
+                      ((uint64_t)(uint32_t)ldl_le_p(p + 5) << 32);
+
+        if (proc_id == SCICLIENT_PROCID_A53_CL0_C0 ||
+            proc_id == SCICLIENT_PROCID_A53_CL0_C1) {
+            s->proc_bootvector[proc_id - SCICLIENT_PROCID_A53_CL0_C0] = bv;
+            trace_dmsc_a53_bootvector(proc_id, bv);
+        }
+    }
 
     if (!ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp))) {
         qemu_log_mask(LOG_GUEST_ERROR,
@@ -1541,6 +1604,7 @@ static const Property ti_dmsc_props[] = {
                       num_secure_rx_threads, secure_rx_threads,
                       qdev_prop_uint16, uint16_t),
     DEFINE_PROP_UINT64("m4-cpu-id", TIDmscState, m4_cpu_id, 0),
+    DEFINE_PROP_UINT64("a53-cpu-id-base", TIDmscState, a53_cpu_id_base, 0),
 };
 
 static void ti_dmsc_class_init(ObjectClass *klass, const void *data)
