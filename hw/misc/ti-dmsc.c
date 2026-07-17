@@ -1132,8 +1132,9 @@ static void ti_dmsc_handover_proc(TIDmscClient *client, TISciMsgHdr *hdr,
  * hang waiting for the reset to take effect. Model TIFS's behaviour by
  * asking QEMU to reset the whole machine; the k3-bootrom reset hook
  * then re-arms the R5 boot core and re-runs the chain, exactly like a
- * real warm reset. If the request unusually asked for an ACK, emit the
- * bare-header response before tearing the machine down.
+ * real warm reset. If the request unusually asked for an ACK,
+ * ti_dmsc_client_respond() emits the bare-header response (its central
+ * AOP gate suppresses it otherwise) before tearing the machine down.
  */
 static void ti_dmsc_handle_sys_reset(TIDmscClient *client, TISciMsgHdr *hdr,
                                      uint16_t thread_id, const uint32_t *words,
@@ -1144,10 +1145,7 @@ static void ti_dmsc_handle_sys_reset(TIDmscClient *client, TISciMsgHdr *hdr,
     trace_dmsc_handle_sys_reset(ti_dmsc_message_name_from_id(hdr->type),
                                 ti_dmsc_host_name_from_id(hdr->host));
 
-    if (hdr->flags & TISCI_MSG_FLAG_AOP) {
-        ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp));
-    }
-
+    ti_dmsc_client_respond(client, (uint32_t *)&resp, sizeof(resp));
     qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
 }
 
