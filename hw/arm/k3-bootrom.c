@@ -61,6 +61,22 @@ static void k3_bootrom_cpu_reset(void *opaque)
         for (unsigned i = 0; i < r->soc->a53_cpus; i++) {
             cpu_reset(CPU(&r->soc->a53[i]));
         }
+
+        /*
+         * The M4 (NeoVisor) shares the exact same gap: nothing else in
+         * the -bios/ROM-boot path resets the armv7m core on system_reset
+         * (armv7m_load_kernel's reset handler, the only thing that
+         * normally does this for M-profile cores, is never installed
+         * here). Without this the M4 keeps running the boot-1 firmware
+         * across the reset while the R5 SPL reloads it into the same
+         * MCU SRAM underneath it, corrupting code/vectors and causing a
+         * double-fault lockup. Reset it back to its start-powered-off
+         * state, exactly as at cold boot, so it re-parks until TISCI
+         * restarts it.
+         */
+        if (r->soc->armv7m.cpu) {
+            cpu_reset(CPU(r->soc->armv7m.cpu));
+        }
     }
 
     cpu_reset(cs);
