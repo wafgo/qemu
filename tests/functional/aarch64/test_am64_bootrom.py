@@ -84,11 +84,13 @@ def make_tiboot3():
 
 class Am64BootRom(QemuSystemTest):
 
-    # The gated full-chain test (test_fluxos_boot_chain) reaches the u-boot
-    # autoboot prompt in ~18 s on a dev box; 120 s leaves ample margin on
-    # slower CI runners. The other (fast) subtests are unaffected -- this is
-    # an upper bound, not a fixed delay.
-    timeout = 120
+    # The longest gated subtest (test_fluxos_full_linux_boot) autoboots all
+    # the way to a Linux login prompt: ~20 s to u-boot, an ~8 s FAT read of
+    # the kernel under TCG, then ~60 s of kernel + userspace bring-up on a
+    # dev box (~90 s total). 300 s leaves ample margin on slower CI runners.
+    # The other (fast) subtests are unaffected -- this is an upper bound,
+    # not a fixed delay.
+    timeout = 300
 
     def boot_bios(self, path):
         self.set_machine('am64-virt')
@@ -162,6 +164,62 @@ class Am64BootRom(QemuSystemTest):
         wait_for_console_pattern(self, 'U-Boot 2025.01')   # u-boot proper
         wait_for_console_pattern(self, 'Model: PHYTEC phyBOARD-Electra')
         wait_for_console_pattern(self, 'Hit any key to stop autoboot')
+
+    @skipUnless(os.getenv('QEMU_TEST_TIBOOT3_P4'),
+                'set QEMU_TEST_TIBOOT3_P4=<path to tiboot3.bin>')
+    @skipUnless(os.getenv('QEMU_TEST_WIC_P4'),
+                'set QEMU_TEST_WIC_P4=<path to fluxos.wic>')
+    def test_fluxos_full_linux_boot(self):
+        # End-to-end AUTOBOOT of the *productized* FluxOS image (meta-cmblu
+        # feat/qemu-boot-detection) with no console key ever pressed. The
+        # u-boot-phytec board_late_init() patch sets is_qemu=1 from the
+        # TI-SCI firmware description; the qemu_setup env hook (run first
+        # from mmcboot) then swaps in the k3-am642-qemu-disable.dtbo overlay
+        # -- which disables the AM64x peripherals QEMU's am64-virt machine
+        # only models as read-as-zero stubs (the omap-i2c stub otherwise
+        # Oopses the kernel at ~2.9 s) -- and masks tedge-bootstrap.service
+        # (no NIC under QEMU, else its 150 s retry loop stalls getty). The
+        # autoboot countdown lapses on its own and the board boots all the
+        # way to a getty login prompt.
+        wic = os.path.abspath(os.getenv('QEMU_TEST_WIC_P4'))
+
+        # Same 512 KiB-alignment guard as test_fluxos_boot_chain: attach the
+        # WIC as the read-only backing file of a throwaway, size-rounded
+        # qcow2 overlay so QEMU's sd-card model accepts it and guest writes
+        # never touch the operator's image.
+        size = os.path.getsize(wic)
+        padded_size = (size + 0x7ffff) & ~0x7ffff
+        overlay = self.scratch_file('wic-overlay-p4.qcow2')
+        qemu_img = get_qemu_img(self)
+        check_call([qemu_img, 'create', '-f', 'qcow2', '-b', wic,
+                    '-F', 'raw', overlay, str(padded_size)],
+                   stdout=DEVNULL, stderr=DEVNULL)
+
+        self.set_machine('am64-virt')
+        self.vm.set_console()
+        self.vm.add_args('-bios', os.getenv('QEMU_TEST_TIBOOT3_P4'),
+                         '-drive',
+                         'if=sd,format=qcow2,file=' + overlay)
+        self.vm.launch()
+
+        # Boot chain up to u-boot proper (same milestones as
+        # test_fluxos_boot_chain); crucially we then do NOT stop autoboot --
+        # the countdown lapses and mmcboot runs qemu_setup.
+        wait_for_console_pattern(self, 'U-Boot SPL')
+        wait_for_console_pattern(self, 'Starting ATF on ARM64 core')
+        wait_for_console_pattern(self, 'NOTICE:  BL31:')
+        wait_for_console_pattern(self, 'U-Boot 2025.01')
+        wait_for_console_pattern(self, 'Model: PHYTEC phyBOARD-Electra')
+        # is_qemu=1 -> qemu_setup applies the disable overlay and the kernel
+        # launches. "Booting Linux" proves the overlay took effect: the
+        # unmodelled-i2c Oops that kills the stock DTB never happens. A
+        # kernel panic on the way is a hard failure.
+        wait_for_console_pattern(self, 'Booting Linux on physical CPU',
+                                 failure_message='Kernel panic')
+        # The getty login prompt -- the end-to-end acceptance criterion for
+        # the QEMU boot, reached with no manual input.
+        wait_for_console_pattern(self, 'login:',
+                                 failure_message='Kernel panic')
 
     # Standalone arm64 kernel (Ubuntu bionic-updates netboot installer),
     # same Asset used by test_xlnx_versal.py.  It ships PL011 + GICv3
