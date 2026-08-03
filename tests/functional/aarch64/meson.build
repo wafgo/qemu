@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 test_aarch64_timeouts = {
+  'am64_bootrom' : 300,
   'aspeed_ast2700' : 600,
   'aspeed_ast2700fc' : 600,
   'device_passthrough' : 720,
