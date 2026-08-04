@@ -231,6 +231,10 @@ class Am64BootRom(QemuSystemTest):
         # falls back to a single-CPU boot instead of full SMP.
         self.assertIn(b'2 processors activated', console_out)
         self.assertNotIn(b'failed to boot CPU1', console_out)
+        # GTC0_GTC_CFG1 is now a register stub reporting the counter
+        # enabled at 200 MHz; ATF-BL31 must never fall back to warning
+        # that the timebase is unusable.
+        self.assertNotIn(b'GTC is disabled', console_out)
 
     # Standalone arm64 kernel (Ubuntu bionic-updates netboot installer),
     # same Asset used by test_xlnx_versal.py.  It ships PL011 + GICv3

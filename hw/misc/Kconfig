@@ -138,6 +138,9 @@ config TI_RAT
 config TI_K3_CTRLMMR
     bool
 
+config TI_K3_GTC
+    bool
+
 config TI_K3_DDRSS
     bool
 

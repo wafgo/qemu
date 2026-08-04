@@ -84,6 +84,7 @@ static void ti_am64x_initfn(Object *obj) {
   object_initialize_child(obj, "trng", &s->trng, TYPE_TI_K3_TRNG);
   object_initialize_child(obj, "main-timer0", &s->main_timer0,
                           TYPE_TI_K3_DMTIMER);
+  object_initialize_child(obj, "gtc", &s->gtc, TYPE_TI_K3_GTC);
 
   for (int i = 0; i < TI_AM64X_SDHCI_NUM; i++) {
       object_initialize_child(obj, "sdhci[*]", &s->sdhci[i],
@@ -186,7 +187,9 @@ static void ti_am64_create_main_unimplemented(MemoryRegion *root)
     ADD_MAIN_UNIMP("CMP_EVENT_INTROUTER0_CFG",             0x000A30000ULL, 0x00000800ULL); /* 2 KB */
     ADD_MAIN_UNIMP("TIMESYNC_EVENT_INTROUTER0_CFG",        0x000A40000ULL, 0x00000800ULL); /* 2 KB */
     ADD_MAIN_UNIMP("GTC0_GTC_CFG0",                        0x000A80000ULL, 0x00000400ULL); /* 1 KB */
-    ADD_MAIN_UNIMP("GTC0_GTC_CFG1",                        0x000A90000ULL, 0x00004000ULL); /* 16 KB */
+    /* GTC0_GTC_CFG1 (0x000A90000) is now modeled by TIK3GtcState, mapped
+     * in ti_am64x_realize(); remove the unimp stub to avoid an overlapping
+     * subregion abort. */
     ADD_MAIN_UNIMP("GTC0_GTC_CFG2",                        0x000AA0000ULL, 0x00004000ULL); /* 16 KB */
     ADD_MAIN_UNIMP("GTC0_GTC_CFG3",                        0x000AB0000ULL, 0x00004000ULL); /* 16 KB */
     ADD_MAIN_UNIMP("VTM0_MMR_VBUSP_CFG1",                  0x000B00000ULL, 0x00000400ULL); /* 1 KB */
@@ -1178,6 +1181,19 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   memory_region_add_subregion(sysmem, 0x02400000,
       sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->main_timer0), 0));
+
+  /*
+   * GTC0_GTC_CFG1 (Global Timebase Counter control window). ATF-BL31
+   * reads CNTCR/CNTFID0 here and warns "GTC is disabled" / "GTC_CNTFID0
+   * is 0" if the region reads back zero; report the counter enabled at
+   * 200 MHz. Replaces the "GTC0_GTC_CFG1" unimp stub removed from the
+   * table above.
+   */
+  if (!sysbus_realize(SYS_BUS_DEVICE(&s->gtc), errp)) {
+    return;
+  }
+  memory_region_add_subregion(sysmem, 0x00A90000,
+      sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->gtc), 0));
 
   /*
    * MMCSD0 (eMMC) / MMCSD1 (SD) SDHCI controllers + their am654-style

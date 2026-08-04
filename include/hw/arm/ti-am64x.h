@@ -26,6 +26,7 @@
 #include "hw/misc/ti-dmsc.h"
 #include "hw/misc/ti-mailbox.h"
 #include "hw/misc/ti-k3-ctrlmmr.h"
+#include "hw/misc/ti-k3-gtc.h"
 #include "hw/misc/ti-k3-ddrss.h"
 #include "hw/misc/ti-k3-sdhci-phy.h"
 #include "hw/misc/ti-k3-trng.h"
@@ -73,6 +74,7 @@ struct TIAM64xState {
     TIK3DdrssState ddrss;
     TIK3TrngState trng;
     TIK3DmTimerState main_timer0;
+    TIK3GtcState gtc;
     SDHCIState sdhci[TI_AM64X_SDHCI_NUM];
     TIK3SdhciPhyState sdhci_phy[TI_AM64X_SDHCI_NUM];
     uint64_t main_ram_base;
