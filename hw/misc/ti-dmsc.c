@@ -1117,6 +1117,28 @@ static void ti_dmsc_start_proc(TIDmscClient *client,
 }
 
 /*
+ * PROC SET_CONTROL: set/clear a processor's boot-control flags (halt,
+ * reset-vector latch, etc.). We model no ownership or control state; the
+ * A53 cores are actually released by SET_DEVICE ON (arm_set_cpu_on) and
+ * their entry captured by SET_CONFIG. ATF's PSCI CPU_ON path issues this
+ * message for the secondary core and aborts if it NAKs, so we ACK it.
+ */
+static void ti_dmsc_handle_proc_set_ctrl(TIDmscClient *client,
+                                         TISciMsgHdr *hdr,
+                                         uint16_t thread_id,
+                                         const uint32_t *words, size_t nwords)
+{
+    TISciMsgHdr resp = ti_dmsc_set_resp_flags(hdr, 0);
+
+    if (!ti_dmsc_client_respond(client,
+                               (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push SET_CTRL response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
+/*
  * TISCI_MSG_PROC_HANDOVER (0xc005): bare-header ACK. u-boot's
  * ti_sci_proc_release() (drivers/remoteproc/ti_sci_proc.h) calls this
  * instead of PROC_RELEASE whenever the rproc node has a valid
@@ -1726,6 +1748,7 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
     s->msg_handler[TISCI_MSG_PROC_RELEASE] = ti_dmsc_stop_proc;
     s->msg_handler[TISCI_MSG_PROC_REQUEST] = ti_dmsc_start_proc;
     s->msg_handler[TISCI_MSG_PROC_HANDOVER] = ti_dmsc_handover_proc;
+    s->msg_handler[TISCI_MSG_SET_CTRL] = ti_dmsc_handle_proc_set_ctrl;
     s->msg_handler[TISCI_MSG_SYS_RESET] = ti_dmsc_handle_sys_reset;
     s->msg_handler[TISCI_MSG_QUERY_FW_CAPS] = ti_dmsc_query_hw_caps;
     s->msg_handler[TISCI_MSG_VERSION] = ti_dmsc_get_version;

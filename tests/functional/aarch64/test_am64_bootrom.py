@@ -225,6 +225,12 @@ class Am64BootRom(QemuSystemTest):
         # through to the DMSC's NAK path. The DMSC now answers that message,
         # so this noise must never reappear in a full boot.
         self.assertNotIn(b'get-parent failed', console_out)
+        # ATF's PSCI CPU_ON path for the secondary A53 sends
+        # TISCI_MSG_SET_CTRL; if the DMSC ever stops ACKing it, ATF aborts
+        # the chain before SET_DEVICE ON and CPU1 never comes up, so Linux
+        # falls back to a single-CPU boot instead of full SMP.
+        self.assertIn(b'2 processors activated', console_out)
+        self.assertNotIn(b'failed to boot CPU1', console_out)
 
     # Standalone arm64 kernel (Ubuntu bionic-updates netboot installer),
     # same Asset used by test_xlnx_versal.py.  It ships PL011 + GICv3
