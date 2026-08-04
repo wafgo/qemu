@@ -21,6 +21,7 @@
 #include "hw/char/ti-am64-uart.h"
 #include "hw/misc/ti-sec-proxy.h"
 #include "hw/intc/arm_gicv3.h"
+#include "hw/arm/omap.h"
 
 #include "qobject/qlist.h"
 #include "qemu/units.h"
@@ -256,7 +257,8 @@ static void ti_am64_create_main_unimplemented(MemoryRegion *root)
     ADD_MAIN_UNIMP("FSS0_OSPI0_SS_CFG",                    0x00FC44000ULL, 0x00000200ULL);
 
 /* I2C */
-    ADD_MAIN_UNIMP("I2C0_CFG",                             0x020000000ULL, 0x00000100ULL);
+    /* I2C0_CFG (main_i2c0, 0x20000000) is a real OMAP-I2C V2 device, realized
+     * and mapped in ti_am64x_realize(); only I2C1/2/3 remain unimplemented. */
     ADD_MAIN_UNIMP("I2C1_CFG",                             0x020010000ULL, 0x00000100ULL);
     ADD_MAIN_UNIMP("I2C2_CFG",                             0x020020000ULL, 0x00000100ULL);
     ADD_MAIN_UNIMP("I2C3_CFG",                             0x020030000ULL, 0x00000100ULL);
@@ -1194,6 +1196,26 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   memory_region_add_subregion(sysmem, 0x00A90000,
       sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->gtc), 0));
+
+  /*
+   * main_i2c0 (0x20000000).  Real OMAP-I2C controller in IP-rev-V2 register
+   * layout ("ti,am64-i2c"/"ti,omap4-i2c").  u-boot's phytec_eeprom_read()
+   * soft-resets it (SYSC.SRST -> SYSS.RDONE) and probes the SoM EEPROM at
+   * 0x50; without a real controller those accesses time out ("Timeout in
+   * soft-reset" / "Timed out in wait_for_event"). The bus is exposed via
+   * omap_i2c_bus(s->i2c0) so an EEPROM can be attached (Task 5b). I2C1/2/3
+   * stay unimplemented (only I2C0 carries the SoM EEPROM).
+   */
+  s->i2c0 = qdev_new(TYPE_OMAP_I2C);
+  /* revision >= OMAP2 so the shared engine uses OMAP2+ (non-auto-reset)
+   * semantics; mmio-version 2 selects the AM64x/OMAP4 register decode. */
+  qdev_prop_set_uint8(s->i2c0, "revision", 0x40);
+  qdev_prop_set_uint8(s->i2c0, "mmio-version", 2);
+  if (!sysbus_realize_and_unref(SYS_BUS_DEVICE(s->i2c0), errp)) {
+    return;
+  }
+  memory_region_add_subregion(sysmem, 0x20000000,
+      sysbus_mmio_get_region(SYS_BUS_DEVICE(s->i2c0), 0));
 
   /*
    * MMCSD0 (eMMC) / MMCSD1 (SD) SDHCI controllers + their am654-style

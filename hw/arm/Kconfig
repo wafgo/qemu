@@ -162,10 +162,15 @@ config OLIMEX_STM32_H405
     depends on TCG && ARM
     select STM32F405_SOC
 
+config OMAP_COMMON
+    bool
+
 config OMAP
     bool
     select FRAMEBUFFER
     select I2C
+    select OMAP_COMMON
+    select OMAP_I2C
     select PFLASH_CFI01
     select SD
     select SERIAL_MM
@@ -441,6 +446,7 @@ config TI_AM64X
     bool
     select ARM_V7M
     select ARM_GIC
+    select OMAP_I2C
     select TI_MAILBOX
     select TI_RAT
     select TI_K3_CTRLMMR

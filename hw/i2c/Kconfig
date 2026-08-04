@@ -49,3 +49,8 @@ config PMBUS
 config BCM2835_I2C
     bool
     select I2C
+
+config OMAP_I2C
+    bool
+    select I2C
+    select OMAP_COMMON

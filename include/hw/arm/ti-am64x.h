@@ -77,6 +77,12 @@ struct TIAM64xState {
     TIK3GtcState gtc;
     SDHCIState sdhci[TI_AM64X_SDHCI_NUM];
     TIK3SdhciPhyState sdhci_phy[TI_AM64X_SDHCI_NUM];
+    /*
+     * main_i2c0 controller (OMAP-I2C IP rev V2).  Held as a DeviceState so
+     * Task 5b can reach its I2CBus via omap_i2c_bus() to attach the phyCORE
+     * SoM EEPROM.
+     */
+    DeviceState *i2c0;
     uint64_t main_ram_base;
     uint64_t main_ram_size;
     uint8_t a53_cpus;
