@@ -416,3 +416,101 @@ errors fail fast before the guest starts.
 - Ph. 4: mechanism for the `sysfw_desc` u-boot patch (env injection
   point); fitImage configuration naming; FluxOS kernel config flags
   (`sdhci_am654`, virtio, PCI).
+
+## As-built (2026-08-04): boot cleanup + SMP
+
+Phase 4 reaches `login:` (Task 9's `test_fluxos_full_linux_boot`), but the
+console was noisy: six boot-noise categories fired on every run, and only
+one A53 came up. A follow-on cleanup pass (plan
+`2026-08-04-am64-qemu-boot-cleanup-smp`) eliminated five of the six on the
+QEMU side and brought up the second A53; the sixth is a DT overlay change
+reconstructed on the meta-cmblu side.
+
+### Noise items: root cause → fix
+
+1. **90× `ti-sci-clk … get-parent failed … ret=-19`** (Linux). The DMSC had
+   no handler for `TISCI_MSG_GET_CLOCK_PARENT` (`0x0103`) and NAK'd every
+   call. Added a handler returning parent 0.
+   (`hw/misc/ti-dmsc.c`, commit `1e8a31b8`)
+2. **CPU1 never booted** (`psci: failed to boot CPU1`, ATF `-19`). ATF's
+   PSCI `CPU_ON` path sends `TISCI_MSG_SET_CTRL` (`0xc101`) before
+   `SET_DEVICE ON`; the DMSC NAK'd it, aborting the chain. Added a bare-ACK
+   `SET_CTRL` handler, which lets the pre-existing `arm_set_cpu_on(core=1)`
+   path fire. (`hw/misc/ti-dmsc.c`, commit `0684c187`)
+3. **ATF `GTC is disabled` / `GTC_CNTFID0 is 0`**. The GTC MMIO region
+   (`0x00A90000`) was covered by an unimplemented-window stub that always
+   read zero. Added a minimal `ti-k3-gtc` register model (`CNTCR = 1`,
+   `CNTFID0 = 200 MHz`) and removed the overlapping unimp window.
+   (`hw/misc/ti-k3-gtc.c`, `hw/arm/ti-am64x.c`, commit `9a0b17f1`)
+4. **8× `Timeout in soft-reset` / `Timed out in wait_for_event`** (u-boot)
+   **and 16× `i2c EEPROM not found` / `EEPROM data init failed`**. No I2C
+   controller was modeled at `main_i2c0` (`0x20000000`), so every
+   soft-reset poll and every EEPROM probe timed out. Retrofitted a
+   property-gated OMAP-IP **V2** register decode onto `hw/i2c/omap_i2c.c`
+   (the existing V1 decode stays the default, so `omap1`/`omap2` boards are
+   unaffected; the shared `omap_badwidth_*` helpers were extracted into a
+   new `hw/arm/omap-common.c` so both IP versions can use them), commit
+   `43992a9d`; then attached an `at24c` EEPROM at address `0x50` on that
+   bus, preloaded with a CRC-valid phytec SoM identity blob, commit
+   `a81fdf59`.
+5. **4× `sdhci-am654 fa10000.mmc: Power on failed` /
+   `Failed to initialize a non-removable card`** (the empty eMMC). **Not a
+   QEMU change** — traced to a `&main_sdhci0 { status = "disabled"; };`
+   line in the meta-cmblu QEMU-detection DT overlay, i.e. a
+   DT-deterministic effect of disabling an empty controller (the rootfs
+   is on `mmcblk1` / `fa00000`, not `fa10000`). Deferred: fixed on the
+   meta-cmblu side (branch `feat/qemu-boot-detection` on yoctoklaus,
+   commit `33979cce`, reconstructed from recovered ground truth but not
+   rebuilt/pushed this session) — a fresh WIC requires a cold, multi-hour
+   `bitbake` and its eMMC boot-verification is left to Phase-5 hardware
+   acceptance.
+
+### SMP result
+
+`SET_CTRL` is the only new machinery `arm_set_cpu_on()` needed — the
+per-core GICR, power-on, and boot-vector plumbing for a second A53 already
+existed from Phase 1–3. With item 2's ACK in place the kernel now reports
+`SMP: Total of 2 processors activated.` on every boot.
+
+### I2C V2-decode retrofit
+
+`hw/i2c/omap_i2c.c` previously implemented only the OMAP-IP V1 register
+layout (used by the `omap1`/`omap2` boards already in-tree). AM64x's
+`main_i2c0` uses the V2 layout (different soft-reset sequencing and status
+bits). Rather than fork a second file, the V2 decode was added behind a
+`ti-am64x`-set property, with V1 remaining the unconditional default for
+every existing board — no behavior change for `omap1`/`omap2` targets. The
+byte/half-word access-width helpers common to both IP versions
+(`omap_badwidth_read*`/`omap_badwidth_write*`) were pulled out of
+`hw/arm/omap1.c` into `hw/arm/omap-common.c` so `ti-am64x.c` could reuse
+them without duplicating the OMAP1-specific file.
+
+### Consolidated result
+
+A hands-off boot with the final binary
+(`.superpowers/sdd/2026-08-04-am64-qemu-boot-cleanup-smp/p4-boot-consolidated.log`)
+shows every QEMU-side pattern at 0 and `SMP: Total of 2 processors
+activated`, boot reaching `login:`, log length 705→576 lines (noise
+removed). A fresh capture taken for this task
+(`p4-boot-clean.log`, repo root) confirms the same result on a clean run:
+`get-parent failed`, `failed to boot CPU1`, `GTC is disabled`, `Timeout in
+soft-reset`, and `i2c EEPROM not found` are all 0 occurrences,
+`SMP: Total of 2 processors activated.` is present, and `login:` is
+reached; only `Power on failed` (×4, the deferred eMMC item) remains.
+
+### Residual benign lines (deliberately left, one line each)
+
+- **cpsw/ethernet absent** — no NIC is modeled under QEMU; the driver
+  probe fails once and the boot proceeds (no network is expected in this
+  environment).
+- **`ti-sci-intr`/`inta`** — an interrupt-router TISCI path the DMSC
+  doesn't implement; single warning, no functional impact on the boot.
+- **`/home/host0` mount fail** — a host-passthrough mount point that only
+  resolves outside QEMU; harmless when absent.
+- **`regulatory.db` firmware load** — the wireless regulatory database is
+  not shipped in this image; benign since there is no radio to regulate.
+- **rti-wdt watchdog probe** — the watchdog driver logs a probe message
+  regardless of whether userspace ever arms it; no behavior change.
+- **`Failed to apply SoM overlays`** — a FIT-content warning (missing
+  overlay entries in the FIT image), not an EEPROM-validity failure; it is
+  benign once the EEPROM read itself succeeds (item 4 above).

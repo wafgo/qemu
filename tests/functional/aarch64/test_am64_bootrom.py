@@ -175,12 +175,12 @@ class Am64BootRom(QemuSystemTest):
         # u-boot-phytec board_late_init() patch sets is_qemu=1 from the
         # TI-SCI firmware description; the qemu_setup env hook (run first
         # from mmcboot) then swaps in the k3-am642-qemu-disable.dtbo overlay
-        # -- which disables the AM64x peripherals QEMU's am64-virt machine
-        # only models as read-as-zero stubs (the omap-i2c stub otherwise
-        # Oopses the kernel at ~2.9 s) -- and masks tedge-bootstrap.service
-        # (no NIC under QEMU, else its 150 s retry loop stalls getty). The
-        # autoboot countdown lapses on its own and the board boots all the
-        # way to a getty login prompt.
+        # -- which disables main_i2c0 in the *Linux* device tree, so Linux
+        # never touches the u-boot-only omap-i2c controller model (the
+        # unmodelled bus otherwise Oopses the kernel at ~2.9 s) -- and masks
+        # tedge-bootstrap.service (no NIC under QEMU, else its 150 s retry
+        # loop stalls getty). The autoboot countdown lapses on its own and
+        # the board boots all the way to a getty login prompt.
         wic = os.path.abspath(os.getenv('QEMU_TEST_WIC_P4'))
 
         # Same 512 KiB-alignment guard as test_fluxos_boot_chain: attach the
@@ -241,6 +241,12 @@ class Am64BootRom(QemuSystemTest):
         # enabled at 200 MHz; ATF-BL31 must never fall back to warning
         # that the timebase is unusable.
         self.assertNotIn(b'GTC is disabled', console_out)
+        # u-boot's omap_i2c_wait() used to time out polling an unmodelled
+        # main_i2c0 controller ("Timeout in soft-reset" / "Timed out in
+        # wait_for_event") before the EEPROM probe ever got a chance to
+        # fail. The controller is now modeled, so the bus resets cleanly
+        # and this must never reappear either.
+        self.assertNotIn(b'Timeout in soft-reset', console_out)
 
     # Standalone arm64 kernel (Ubuntu bionic-updates netboot installer),
     # same Asset used by test_xlnx_versal.py.  It ships PL011 + GICv3
