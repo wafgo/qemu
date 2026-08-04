@@ -146,11 +146,23 @@ I2CSlave *at24c_eeprom_init(I2CBus *bus, uint8_t address, uint32_t rom_size)
 I2CSlave *at24c_eeprom_init_rom(I2CBus *bus, uint8_t address, uint32_t rom_size,
                                 const uint8_t *init_rom, uint32_t init_rom_size)
 {
+    return at24c_eeprom_init_rom_asize(bus, address, rom_size, 0,
+                                       init_rom, init_rom_size);
+}
+
+I2CSlave *at24c_eeprom_init_rom_asize(I2CBus *bus, uint8_t address,
+                                      uint32_t rom_size, uint8_t addr_size,
+                                      const uint8_t *init_rom,
+                                      uint32_t init_rom_size)
+{
     EEPROMState *s;
 
     s = AT24C_EE(i2c_slave_new(TYPE_AT24C_EE, address));
 
     qdev_prop_set_uint32(DEVICE(s), "rom-size", rom_size);
+    if (addr_size) {
+        qdev_prop_set_uint8(DEVICE(s), "address-size", addr_size);
+    }
 
     /* TODO: Model init_rom with QOM properties. */
     s->init_rom = init_rom;

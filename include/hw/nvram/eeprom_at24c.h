@@ -36,4 +36,20 @@ I2CSlave *at24c_eeprom_init(I2CBus *bus, uint8_t address, uint32_t rom_size);
 I2CSlave *at24c_eeprom_init_rom(I2CBus *bus, uint8_t address, uint32_t rom_size,
                                 const uint8_t *init_rom, uint32_t init_rom_size);
 
+/*
+ * Like at24c_eeprom_init_rom(), but also sets the internal address (offset)
+ * byte width before realizing the device.
+ * @addr_size: number of internal address bytes the EEPROM consumes before
+ *             data (e.g. 2 for M24C32-class 16-bit addressing). A value of 0
+ *             leaves the property unset, so the model keeps its size-derived
+ *             default (identical to at24c_eeprom_init_rom()).
+ *
+ * Needed for parts addressed with a 16-bit internal pointer where the default
+ * (rom-size derived) width would otherwise mis-parse the address phase.
+ */
+I2CSlave *at24c_eeprom_init_rom_asize(I2CBus *bus, uint8_t address,
+                                      uint32_t rom_size, uint8_t addr_size,
+                                      const uint8_t *init_rom,
+                                      uint32_t init_rom_size);
+
 #endif

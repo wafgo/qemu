@@ -447,6 +447,7 @@ config TI_AM64X
     select ARM_V7M
     select ARM_GIC
     select OMAP_I2C
+    select AT24C
     select TI_MAILBOX
     select TI_RAT
     select TI_K3_CTRLMMR

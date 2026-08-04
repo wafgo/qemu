@@ -22,6 +22,7 @@
 #include "hw/misc/ti-sec-proxy.h"
 #include "hw/intc/arm_gicv3.h"
 #include "hw/arm/omap.h"
+#include "hw/nvram/eeprom_at24c.h"
 
 #include "qobject/qlist.h"
 #include "qemu/units.h"
@@ -51,6 +52,33 @@
 
 #define MCU_RAT_SIZE (2 * 1024 * 1024)
 #define MCU_RAT_BASE_ADDRESS 0x60000000
+
+/*
+ * phyCORE-AM64x SoM identity EEPROM contents (main_i2c0, chip 0x50).
+ *
+ * u-boot's phytec_eeprom_data_init() reads a 32-byte api-v2
+ * "phytec_eeprom_data" blob and rejects it unless: byte[0] (api_rev) != 0xff,
+ * the block is not all-zero, and the u-boot crc8 (lib/crc8.c, POLY
+ * 0x1070<<3) over ALL 32 bytes equals 0. Layout (phytec_som_detection.h):
+ *   [0]      api_rev            = 0x02  (PHYTEC_API_REV2)
+ *   [1]      pcb_rev
+ *   [2]      pcb_sub_opt_rev
+ *   [3]      som_type           (0 = PCM)
+ *   [4]      som_no             (72 -> PCM-072 = phyCORE-AM64x)
+ *   [5]      ksp_no
+ *   [6..22]  opt[17]            ASCII option string, NUL padded
+ *   [23..24] bom_rev[2]         "A1"
+ *   [25..30] mac[6]
+ *   [31]     crc8               chosen so crc8(0, blob, 32) == 0
+ * The trailing crc byte (0x04) was computed with a host replica of u-boot's
+ * crc8(); see task-5b-report.md. Only the first 32 bytes are consumed.
+ */
+static const uint8_t phytec_som_eeprom[32] = {
+    0x02, 0x01, 0x00, 0x00, 0x48, 0x00, 0x31, 0x33,
+    0x30, 0x31, 0x31, 0x32, 0x30, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x41,
+    0x31, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x04,
+};
 
 static void ti_am64x_initfn(Object *obj) {
   TIAM64xState *s = TI_AM64X(obj);
@@ -1216,6 +1244,18 @@ static void ti_am64x_realize(DeviceState *dev_soc, Error **errp) {
   }
   memory_region_add_subregion(sysmem, 0x20000000,
       sysbus_mmio_get_region(SYS_BUS_DEVICE(s->i2c0), 0));
+
+  /*
+   * phyCORE-AM64x SoM identity EEPROM (M24C32-class, 4096 bytes, 16-bit
+   * internal addressing) at chip 0x50 on main_i2c0, preloaded with a valid
+   * api-v2 identity blob (see phytec_som_eeprom above). address-size MUST be
+   * 2: u-boot addresses the part with a 2-byte internal offset, and the
+   * default (rom-size derived) width would otherwise mis-parse the address
+   * phase and corrupt the read. This makes phytec_eeprom_read() succeed and
+   * silences the "i2c EEPROM not found" / "EEPROM data init failed" noise.
+   */
+  at24c_eeprom_init_rom_asize(omap_i2c_bus(s->i2c0), 0x50, 4096, 2,
+                              phytec_som_eeprom, sizeof(phytec_som_eeprom));
 
   /*
    * MMCSD0 (eMMC) / MMCSD1 (SD) SDHCI controllers + their am654-style

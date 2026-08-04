@@ -102,7 +102,7 @@ static int omap_i2c_v2_to_v1(int offset)
     switch (offset) {
     case OMAP_I2C_V2_BUF:     return 0x14;
     case OMAP_I2C_V2_CNT:     return 0x18;
-    case OMAP_I2C_V2_DATA:    return 0x1c;
+    /* DATA (0x9c) is handled inline byte-wise by the V2 front-end. */
     case OMAP_I2C_V2_CON:     return 0x24;
     case OMAP_I2C_V2_OA:      return 0x28;
     case OMAP_I2C_V2_SA:      return 0x2c;
@@ -239,6 +239,52 @@ static uint32_t omap_i2c_read(void *opaque, hwaddr addr)
             return 1;
         case OMAP_I2C_V2_BUFSTAT:
             return 0;
+        case OMAP_I2C_V2_DATA: {
+            /*
+             * The OMAP4/AM64x driver accesses the DATA register one byte per
+             * MMIO access (readw of a single byte), unlike the classic V1
+             * 16-bit FIFO convention.  Pop exactly one byte (oldest first,
+             * FIFO is filled LSB-first by omap_i2c_fifo_run()).
+             */
+            uint8_t b = s->fifo & 0xff;
+            if (s->rxlen > 0) {
+                s->fifo >>= 8;
+                s->rxlen--;
+            }
+            /*
+             * Refill from the slave while the transfer is still live (this
+             * may complete count_cur and issue the STOP, leaving the last
+             * few prefetched bytes buffered in the FIFO with the bus idle).
+             */
+            omap_i2c_fifo_run(s);
+            /*
+             * Drive the RRDY/ARDY handshake directly off the FIFO drain
+             * state so it keeps working after the bus has gone idle: RRDY
+             * stays asserted while buffered bytes remain, and ARDY is raised
+             * once the last byte has been consumed (master-receive).
+             */
+            if (s->rxlen > 0) {
+                s->stat |= 1 << 3;                          /* RRDY */
+            } else {
+                s->stat &= ~(1 << 3);                       /* RRDY */
+                if (((s->control >> 10) & 1) &&             /* MST */
+                    ((~s->control >> 9) & 1)) {             /* TRX (receive) */
+                    s->stat |= 1 << 2;                      /* ARDY */
+                    s->control &= ~(1 << 10);               /* MST */
+                    /*
+                     * DCOUNT decrements to 0 on real hardware and stays
+                     * there; leave it at 0 so a following address-only probe
+                     * (which programs no CNT) starts from 0 and completes
+                     * with ARDY instead of waiting for phantom TX bytes.
+                     */
+                    s->count = 0;
+                    s->count_cur = 0;
+                }
+            }
+            s->stat &= ~(1 << 11);                          /* ROVR */
+            omap_i2c_interrupts_update(s);
+            return b;
+        }
         default:
             offset = omap_i2c_v2_to_v1(offset);
             if (offset < 0) {
@@ -360,9 +406,48 @@ static void omap_i2c_write(void *opaque, hwaddr addr,
                 omap_i2c_reset(DEVICE(s));
             }
             return;
+        case OMAP_I2C_V2_DATA:
+            /*
+             * The OMAP4/AM64x driver writes the DATA register one byte per
+             * MMIO access (writew of a single byte).  Push exactly one byte,
+             * mirroring the classic 8-bit FIFO path (omap_i2c_writeb()).
+             */
+            if (s->txlen <= 2) {
+                s->fifo <<= 8;
+                s->txlen += 1;
+                s->fifo |= value & 0xff;
+                s->stat &= ~(1 << 10);                  /* XUDF */
+                if (s->txlen > 2) {
+                    s->stat &= ~(1 << 4);               /* XRDY */
+                }
+                omap_i2c_fifo_run(s);
+                /*
+                 * If the transmit finished and issued its STOP, leave DCOUNT
+                 * at 0 (see the DATA read path) so the next probe/transfer
+                 * that does not reprogram CNT is not tricked into expecting
+                 * stale phantom bytes.
+                 */
+                if (!i2c_bus_busy(s->bus)) {
+                    s->count = 0;
+                    s->count_cur = 0;
+                }
+                omap_i2c_interrupts_update(s);
+            }
+            return;
         case OMAP_I2C_V2_IRQSTATUS_RAW:
         case OMAP_I2C_V2_IRQSTATUS:             /* write-1-to-clear */
             s->stat &= ~(value & 0x7fff);
+            /*
+             * XRDY/RRDY are level events: after the driver clears them it
+             * expects them to re-assert while the transfer still has room /
+             * data.  Re-run the FIFO engine for a live transfer, then
+             * re-assert RRDY if bytes remain buffered even after the bus has
+             * gone idle (the tail of a receive drains from the FIFO).
+             */
+            omap_i2c_fifo_run(s);
+            if (s->rxlen > 0) {
+                s->stat |= 1 << 3;              /* RRDY */
+            }
             omap_i2c_interrupts_update(s);
             return;
         case OMAP_I2C_V2_IRQENABLE_SET:

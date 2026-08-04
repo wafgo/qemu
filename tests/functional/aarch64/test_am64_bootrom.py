@@ -225,6 +225,12 @@ class Am64BootRom(QemuSystemTest):
         # through to the DMSC's NAK path. The DMSC now answers that message,
         # so this noise must never reappear in a full boot.
         self.assertNotIn(b'get-parent failed', console_out)
+        # u-boot's phytec_eeprom_read() probes the SoM identity EEPROM on
+        # main_i2c0 at 0x50. That chip is now modeled (an at24c preloaded
+        # with a valid api-v2 blob), so the read succeeds and must never log
+        # "i2c EEPROM not found" (the -EREMOTEIO seen when the bus had no
+        # slave attached).
+        self.assertNotIn(b'i2c EEPROM not found', console_out)
         # ATF's PSCI CPU_ON path for the secondary A53 sends
         # TISCI_MSG_SET_CTRL; if the DMSC ever stops ACKing it, ATF aborts
         # the chain before SET_DEVICE ON and CPU1 never comes up, so Linux
