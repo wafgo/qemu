@@ -509,6 +509,19 @@ struct TisciMsgGetNumClockParentsResp {
     uint32_t            num_parentint32_t;
 } QEMU_PACKED;
 
+struct TisciMsgGetClockParentReq {
+    TISciMsgHdr         hdr;
+    uint32_t            device;
+    uint8_t             clk;
+    uint32_t            clk32;
+} QEMU_PACKED;
+
+struct TisciMsgGetClockParentResp {
+    TISciMsgHdr         hdr;
+    uint8_t             parent;
+    uint32_t            parent32;
+} QEMU_PACKED;
+
 /*
  * TISCI_MSG_SET_CLOCK_PARENT (0x0102) request, mirrors u-boot's
  * struct ti_sci_msg_req_set_clock_parent. Response is a bare generic

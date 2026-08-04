@@ -218,8 +218,13 @@ class Am64BootRom(QemuSystemTest):
                                  failure_message='Kernel panic')
         # The getty login prompt -- the end-to-end acceptance criterion for
         # the QEMU boot, reached with no manual input.
-        wait_for_console_pattern(self, 'login:',
-                                 failure_message='Kernel panic')
+        console_out = wait_for_console_pattern(self, 'login:',
+                                               failure_message='Kernel panic')
+        # ti-sci-clk logs "get-parent failed ... ret=-19" once per clock it
+        # probes (dozens of times) whenever TISCI_MSG_GET_CLOCK_PARENT falls
+        # through to the DMSC's NAK path. The DMSC now answers that message,
+        # so this noise must never reappear in a full boot.
+        self.assertNotIn(b'get-parent failed', console_out)
 
     # Standalone arm64 kernel (Ubuntu bionic-updates netboot installer),
     # same Asset used by test_xlnx_versal.py.  It ships PL011 + GICv3

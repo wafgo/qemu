@@ -1025,6 +1025,32 @@ static void ti_dmsc_handle_get_clock_parents(TIDmscClient *client,
 
 }
 
+/*
+ * GET_CLOCK_PARENT: report the current parent of a clock. We do not model
+ * real clock topology; every clock is reported as selecting its first
+ * parent (index 0). This is enough to stop the Linux ti-sci-clk driver
+ * from logging "get-parent failed ... ret=-19" for each clock it probes.
+ */
+static void ti_dmsc_handle_get_clock_parent(TIDmscClient *client,
+                                            TISciMsgHdr *hdr,
+                                            uint16_t thread_id,
+                                            const uint32_t *words,
+                                            size_t nwords)
+{
+    struct TisciMsgGetClockParentResp resp = { 0 };
+
+    resp.hdr = ti_dmsc_set_resp_flags(hdr, 0);
+    resp.parent = 0;
+    resp.parent32 = 0;
+
+    if (!ti_dmsc_client_respond(client,
+                               (uint32_t *)&resp, sizeof(resp))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "ti-dmsc: Failed to push GET_CLOCK_PARENT response into sec-proxy thread=%u\n",
+                      client->tx_thread_id);
+    }
+}
+
 static void ti_dmsc_handle_get_clock(TIDmscClient *client, TISciMsgHdr *hdr,
                                      uint16_t thread_id, const uint32_t *words,
                                      size_t nwords)
@@ -1712,6 +1738,7 @@ static void ti_dmsc_realize(DeviceState *dev, Error **errp)
         ti_dmsc_handle_set_device_resets;
     s->msg_handler[TISCI_MSG_GET_CLOCK] = ti_dmsc_handle_get_clock;
     s->msg_handler[TISCI_MSG_SET_CLOCK] = ti_dmsc_handle_set_clock;
+    s->msg_handler[TISCI_MSG_GET_CLOCK_PARENT] = ti_dmsc_handle_get_clock_parent;
     s->msg_handler[TISCI_MSG_GET_NUM_CLOCK_PARENTS] = ti_dmsc_handle_get_clock_parents;
     s->msg_handler[TISCI_MSG_SET_CLOCK_PARENT] =
         ti_dmsc_handle_set_clock_parent;
